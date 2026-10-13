@@ -119,6 +119,12 @@ No fluxo Docker, o backend e o painel web já recebem suas configurações pelo
 `app/mobile/.env` só é necessário para configurar o endereço da API usado pelo
 celular ou emulador.
 
+O aplicativo mobile não faz parte dos quatro serviços do Docker Compose. Ele é
+executado separadamente com Expo e exige Node.js/npm, caso o usuário queira
+utilizá-lo. O Wokwi CLI também é opcional: para o fluxo recomendado, basta a
+extensão Wokwi Simulator do VS Code. O CLI só é necessário para executar ou
+compilar o simulador pelo terminal ou por tasks baseadas no CLI.
+
 ## Execução recomendada: Docker Compose
 
 O Docker Compose inicia o backend, o painel web, o MongoDB e o Mosquitto.
@@ -222,6 +228,10 @@ Se o botão Play não aparecer, confirme que o arquivo aberto é
 `wokwi/diagram.json`, que a extensão está habilitada e que a pasta correta foi
 aberta no VS Code. A extensão pode solicitar autenticação ou um token da conta
 Wokwi, conforme a configuração do usuário.
+
+O Wokwi CLI não é necessário para executar o diagrama pelo botão **Play**. Ele
+é uma alternativa para quem deseja executar o simulador pelo terminal ou usar
+tasks de compilação e execução.
 
 ## Execução opcional sem Docker
 
