@@ -104,15 +104,129 @@ docker-compose.yml stack principal do projeto
 
 ## Requisitos
 
-- Node.js 18+
-- npm
-- Docker Desktop (opcional, para execução em container)
-- broker MQTT acessível localmente ou via rede
-- MongoDB opcional, mas recomendado para persistência
+Para executar o fluxo recomendado, o usuário precisa somente de:
 
-## Como executar localmente
+- Docker Desktop instalado e iniciado;
+- Visual Studio Code;
+- extensão Wokwi Simulator;
+- acesso à internet na primeira execução, para baixar as imagens Docker.
 
-### 1) Backend
+Node.js, npm, MongoDB e Mosquitto não precisam ser instalados separadamente
+quando o projeto é executado pelo Docker Compose.
+
+## Execução recomendada: Docker Compose
+
+O Docker Compose inicia o backend, o painel web, o MongoDB e o Mosquitto.
+Na raiz do projeto, execute:
+
+```bash
+docker compose up --build -d
+```
+
+Esse comando constrói as imagens locais do backend e do painel web, baixa as
+imagens prontas do MongoDB e do Mosquitto quando necessário, cria a rede e o
+volume do projeto e inicia os quatro serviços.
+
+Verifique o estado dos containers:
+
+```bash
+docker compose ps
+```
+
+Valide a API:
+
+```bash
+curl http://localhost:3000/health
+curl http://localhost:3000/status
+```
+
+Serviços disponíveis:
+
+- API: `http://localhost:3000`
+- Web: `http://localhost:8080`
+- MongoDB: `localhost:27017`
+- Mosquitto: `localhost:1883`
+
+Abra o painel web em `http://localhost:8080`. O volume `mongo_data` mantém os
+dados do MongoDB quando os containers são parados e recriados.
+
+Para acompanhar os logs:
+
+```bash
+docker compose logs -f
+```
+
+Para parar o projeto sem remover os dados:
+
+```bash
+docker compose down
+```
+
+> Não use `docker compose down -v` durante uma execução normal. A opção `-v`
+> remove o volume do MongoDB e apaga os dados persistidos.
+
+## Iniciar o simulador Wokwi pelo VS Code
+
+Depois que os quatro serviços do Docker estiverem funcionando, inicie o
+simulador para publicar os sensores e receber comandos de irrigação.
+
+### 1) Instalar a extensão
+
+No VS Code, abra **Extensions** (`Ctrl+Shift+X`), procure por
+**Wokwi Simulator** e instale a extensão publicada pela Wokwi.
+
+Abra a pasta `wokwi/` do projeto no VS Code ou abra o arquivo
+`wokwi/diagram.json`. Esse arquivo contém o circuito virtual, os sensores, o
+ESP32 e as conexões do simulador.
+
+### 2) Executar a simulação
+
+Com `wokwi/diagram.json` aberto:
+
+1. localize o botão **Play** (triângulo) exibido no editor do diagrama;
+2. clique no botão para iniciar a simulação;
+3. aguarde o ESP32 virtual iniciar;
+4. observe o console/log do simulador na parte inferior do VS Code.
+
+O firmware do simulador conecta-se ao Wi-Fi virtual `Wokwi-GUEST` e ao broker
+MQTT público `broker.hivemq.com:1883`. Ele publica telemetria no tópico
+`horta/telemetry` e recebe comandos de irrigação no tópico
+`horta/irrigation`.
+
+Com o Docker e o Wokwi ativos, o fluxo é:
+
+```text
+Sensores virtuais
+      ↓
+ESP32 simulado / Wokwi
+      ↓ MQTT
+broker.hivemq.com
+      ↓
+backend no Docker
+      ↓
+MongoDB + painel web
+```
+
+O log do simulador apresenta a execução do ESP32 e os dados publicados. No
+painel web, acesse `http://localhost:8080` para acompanhar os valores de
+umidade do solo, temperatura e umidade do ar em tempo real. Os controles de
+irrigação do painel publicam comandos MQTT que podem ser recebidos pelo
+simulador.
+
+Se o botão Play não aparecer, confirme que o arquivo aberto é
+`wokwi/diagram.json`, que a extensão está habilitada e que a pasta correta foi
+aberta no VS Code. A extensão pode solicitar autenticação ou um token da conta
+Wokwi, conforme a configuração do usuário.
+
+## Execução opcional sem Docker
+
+O modo standalone é útil para desenvolvimento e depuração, mas exige mais
+configuração manual. Nesse modo, cada serviço é iniciado em seu próprio
+terminal e as dependências precisam estar instaladas na máquina.
+
+### Backend
+
+Requer Node.js 18+, npm, um broker MQTT e, opcionalmente, MongoDB.
 
 ```bash
 cd backend
@@ -131,29 +245,30 @@ MQTT_IRRIGATION_TOPIC=horta/irrigation
 MONGO_URI=mongodb://localhost:27017/horta-comunitaria
 ```
 
-Se `MONGO_URI` não estiver disponível, o backend continua operando em modo de demonstração com dados em memória.
+Se `MONGO_URI` não estiver disponível, o backend continua operando em modo de
+demonstração com dados em memória.
 
-### 2) Painel web
+### Painel web
+
+Em outro terminal:
 
 ```bash
 npm --prefix app/web install
 npm --prefix app/web run dev
 ```
 
-Acesse:
+Acesse `http://localhost:5173`.
 
-```text
-http://localhost:5173
-```
-
-Para build de produção:
+Para um build de produção:
 
 ```bash
 npm --prefix app/web run build
 npm --prefix app/web run preview
 ```
 
-### 3) App mobile
+### App mobile
+
+Em outro terminal:
 
 ```bash
 cd app/mobile
@@ -162,56 +277,16 @@ npm install
 npm run start
 ```
 
-Na primeira execução, o Expo exibirá no terminal o endereço usado pela rede
-local, por exemplo `exp://<IP_LOCAL>:8081`. Use somente o IP exibido nessa
-mensagem para configurar a URL da API:
+Na primeira execução, o Expo exibirá o endereço usado pela rede local, por
+exemplo `exp://<IP_LOCAL>:8081`. Use o IP exibido para configurar
+`EXPO_PUBLIC_API_URL` em `app/mobile/.env`:
 
-1. Pare o Expo com `Ctrl+C`.
-2. Abra `app/mobile/.env` e substitua `<SEU_IP_LOCAL>` pelo IP mostrado pelo
-   Expo:
-
-   ```env
-   EXPO_PUBLIC_API_URL=http://<SEU_IP_LOCAL>:3000
-   ```
-
-3. Reinicie o Expo:
-
-   ```bash
-   npm run start
-   ```
-
-Importante:
-
-- o IP usado na URL da API é o mesmo IP local exibido pelo Expo, mas a porta da
-  API é `3000` (não use a porta `8081` do Expo);
-- o celular e o computador devem estar na mesma rede Wi-Fi;
-- não use `localhost` no dispositivo móvel, pois ele aponta para o próprio celular;
-- em emulador Android, use `http://10.0.2.2:3000`;
-- em simulador iOS, `http://localhost:3000` normalmente funciona;
-- confirme que a API está em execução na porta `3000` antes de abrir o app.
-
-### 4) Docker Compose
-
-Na raiz do projeto:
-
-```bash
-docker compose up --build -d
+```env
+EXPO_PUBLIC_API_URL=http://<SEU_IP_LOCAL>:3000
 ```
 
-Serviços principais:
-
-- API: `http://localhost:3000`
-- Web: `http://localhost:8080`
-- MongoDB: `localhost:27017`
-- Mosquitto: `localhost:1883`
-
-Validação rápida:
-
-```bash
-docker compose ps
-curl http://localhost:3000/health
-curl http://localhost:3000/status
-```
+O celular e o computador devem estar na mesma rede Wi-Fi. Não use `localhost`
+no dispositivo móvel; em um emulador Android, use `http://10.0.2.2:3000`.
 
 ## MQTT e payloads
 
@@ -278,89 +353,6 @@ curl -X POST http://localhost:3000/irrigation \
 - Em ausência de MongoDB, a API funciona com estado em memória e dados demo.
 - O backend continua emitindo eventos realtime via Socket.IO mesmo sem banco conectado.
 - O painel web e o mobile refletem o mesmo estado do backend e não dependem de polling manual para atualizar a tela principal.
-
-## Wokwi / simulador ESP32
-
-O repositório já inclui o firmware compilado em
-`wokwi/build/esp32.esp32.esp32/wokwi.ino.elf`. Para apenas executar o
-simulador, não é necessário recompilar.
-
-### Executar em outro computador
-
-O fluxo mínimo no Windows é instalar o Wokwi CLI, configurar um token e iniciar
-o firmware já compilado. Depois de clonar o repositório, abra o PowerShell na
-pasta do projeto:
-
-```powershell
-iwr https://wokwi.com/ci/install.ps1 -useb | iex
-wokwi-cli --version
-```
-
-Se `wokwi-cli` não for reconhecido, feche e abra o PowerShell para atualizar o
-`PATH`. Crie um token no [Wokwi CI Dashboard](https://wokwi.com/dashboard/ci) e
-substitua o valor abaixo pelo seu token:
-
-```powershell
-$env:WOKWI_CLI_TOKEN = "<SEU_TOKEN_WOKWI>"
-cd wokwi
-wokwi-cli .
-```
-
-O token vale somente para essa sessão do terminal e não deve ser colocado em
-`tasks.json` ou em outro arquivo versionado. O simulador usa o Wi-Fi virtual
-`Wokwi-GUEST` e o broker MQTT público `broker.hivemq.com:1883`, nos tópicos
-`horta/telemetry` e `horta/irrigation`.
-
-No Linux ou macOS, instale o CLI seguindo a
-[documentação oficial](https://docs.wokwi.com/wokwi-ci/cli-installation) e
-execute os mesmos comandos de configuração e execução.
-
-### Executar pela task do VS Code
-
-No Windows, defina o token antes de abrir o VS Code e abra a pasta `wokwi/`:
-
-```powershell
-$env:WOKWI_CLI_TOKEN = "<SEU_TOKEN_WOKWI>"
-code wokwi
-```
-
-Depois selecione **Tasks: Run Task > Rodar Wokwi CLI**. Essa task recompila o
-firmware com `compile.ps1` antes de iniciar o simulador. Use-a quando o arquivo
-`wokwi.ino` tiver sido alterado.
-
-Para executar sem recompilar, use o comando manual da seção anterior. A
-recompilação no Windows utiliza o `wokwi/arduino-cli.exe`; se as dependências
-Arduino ainda não estiverem instaladas, a compilação poderá solicitar o core
-ESP32 e as bibliotecas de `wokwi/libraries.txt`.
-
-### Executar o projeto completo
-
-Para integrar o simulador com o projeto, inicie o Docker Compose na raiz do
-repositório:
-
-```powershell
-docker compose up --build -d
-```
-
-O Compose inicia os quatro serviços necessários:
-
-- backend/API;
-- painel web;
-- MongoDB;
-- Mosquitto.
-
-Depois, em outro terminal, execute o Wokwi conforme a seção anterior. O backend
-do Compose já está configurado para receber a telemetria do simulador pelo
-broker MQTT público usado pelo firmware.
-
-Verifique se a API está funcionando:
-
-```powershell
-curl http://localhost:3000/health
-```
-
-Acesse o painel web em `http://localhost:8080`. Para o app mobile, use a URL da
-API configurada em `app/mobile/.env`, conforme as instruções anteriores.
 
 ## Roadmap prático
 
