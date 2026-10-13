@@ -114,6 +114,11 @@ Para executar o fluxo recomendado, o usuário precisa somente de:
 Node.js, npm, MongoDB e Mosquitto não precisam ser instalados separadamente
 quando o projeto é executado pelo Docker Compose.
 
+No fluxo Docker, o backend e o painel web já recebem suas configurações pelo
+`docker-compose.yml` e não exigem um arquivo `.env` próprio. O arquivo
+`app/mobile/.env` só é necessário para configurar o endereço da API usado pelo
+celular ou emulador.
+
 ## Execução recomendada: Docker Compose
 
 O Docker Compose inicia o backend, o painel web, o MongoDB e o Mosquitto.
@@ -234,6 +239,9 @@ npm install
 copy .env.example .env
 npm run dev
 ```
+
+O `.env` do backend é necessário somente neste modo standalone. Ele não é
+necessário quando o backend é iniciado pelo Docker Compose.
 
 Arquivo `.env` padrão:
 
