@@ -75,7 +75,8 @@ As telas usam a mesma API e os mesmos conceitos do painel web, com botões para 
 
 ### IoT / firmware
 
-A pasta `iot/` contém o firmware de referência para ESP32 em Arduino/C++.
+A pasta `iot/` contém o firmware para o ESP32 físico em Arduino/C++. O arquivo
+`wokwi/wokwi.ino` mantém o firmware equivalente usado no simulador.
 
 Ele:
 
@@ -86,6 +87,22 @@ Ele:
 - aceita override manual via comando MQTT.
 
 O código do firmware define a estrutura básica do fluxo de integração, e o backend aceita o mesmo conjunto de comandos e payloads esperados pela camada IoT.
+
+Para gravar o firmware no ESP32 físico:
+
+1. Abra `iot/HortaComunitaria.ino` na Arduino IDE.
+2. Instale o suporte da placa ESP32 e as bibliotecas `DHT sensor library`,
+   `PubSubClient` e `ArduinoJson`.
+3. Altere `WIFI_SSID` e `WIFI_PASSWORD` no início do arquivo. Não envie essas
+   credenciais para o repositório.
+4. Selecione a placa e a porta serial do ESP32 e faça o upload.
+5. Abra o monitor serial em `115200` baud.
+
+O firmware físico usa o mesmo broker MQTT, tópicos, pinos, callback de comandos,
+telemetria e histerese do firmware Wokwi. O ESP32 físico precisa ter acesso à
+internet para alcançar `broker.hivemq.com:1883`. A leitura do sensor de solo
+usa o ADC do GPIO 34 e a saída do relé usa o GPIO 5; confirme esses pinos na
+montagem física antes de energizar o circuito.
 
 ## Estrutura do repositório
 
@@ -114,10 +131,11 @@ Para executar o fluxo recomendado, o usuário precisa somente de:
 Node.js, npm, MongoDB e Mosquitto não precisam ser instalados separadamente
 quando o projeto é executado pelo Docker Compose.
 
-No fluxo Docker, o backend e o painel web já recebem suas configurações pelo
-`docker-compose.yml` e não exigem um arquivo `.env` próprio. O arquivo
-`app/mobile/.env` só é necessário para configurar o endereço da API usado pelo
-celular ou emulador.
+No fluxo Docker, o backend recebe as configurações de autenticação pelo arquivo
+`.env` da raiz, lido automaticamente pelo Docker Compose. O arquivo
+`.env.example` contém os valores necessários para desenvolvimento. O arquivo
+`app/mobile/.env` é separado e só é necessário para configurar o endereço da
+API usado pelo celular ou emulador.
 
 O aplicativo mobile não faz parte dos quatro serviços do Docker Compose. Ele é
 executado separadamente com Expo e exige Node.js/npm, caso o usuário queira
@@ -128,7 +146,19 @@ compilar o simulador pelo terminal ou por tasks baseadas no CLI.
 ## Execução recomendada: Docker Compose
 
 O Docker Compose inicia o backend, o painel web, o MongoDB e o Mosquitto.
-Na raiz do projeto, execute:
+Na primeira execução, crie o arquivo `.env` a partir do exemplo e altere pelo
+menos `JWT_SECRET` e `ADMIN_PASSWORD`:
+
+```powershell
+copy .env.example .env
+```
+
+O `JWT_SECRET` deve ser uma chave aleatória com pelo menos 32 caracteres.
+`ADMIN_NAME`, `ADMIN_EMAIL` e `ADMIN_PASSWORD` definem a conta do primeiro
+administrador. A senha deve ter pelo menos 12 caracteres. Esses valores são
+usados somente se ainda não existir um usuário com o e-mail informado.
+
+Depois, na raiz do projeto, execute:
 
 ```bash
 docker compose up --build -d
@@ -250,8 +280,9 @@ copy .env.example .env
 npm run dev
 ```
 
-O `.env` do backend é necessário somente neste modo standalone. Ele não é
-necessário quando o backend é iniciado pelo Docker Compose.
+O `.env` do backend é necessário somente neste modo standalone. No Docker
+Compose, use o `.env` da raiz do projeto; ele é lido automaticamente pelo
+Compose.
 
 Arquivo `.env` padrão:
 
@@ -261,10 +292,78 @@ MQTT_BROKER=mqtt://localhost:1883
 MQTT_TELEMETRY_TOPIC=horta/telemetry
 MQTT_IRRIGATION_TOPIC=horta/irrigation
 MONGO_URI=mongodb://localhost:27017/horta-comunitaria
+JWT_SECRET=gere-uma-chave-aleatoria-com-pelo-menos-32-caracteres
+JWT_EXPIRES_IN=8h
+
+# Seed opcional do primeiro administrador
+ADMIN_NAME=Administrador Inicial
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=troque-esta-senha-por-uma-forte
 ```
 
 Se `MONGO_URI` não estiver disponível, o backend continua operando em modo de
 demonstração com dados em memória.
+
+As variáveis `JWT_SECRET` e `ADMIN_*` são necessárias para a autenticação e para
+criar o primeiro administrador nas próximas etapas. Não use os valores de
+exemplo em produção e não versione o arquivo `.env`.
+
+No Docker Compose, essas variáveis devem ser definidas em um arquivo `.env` na
+raiz do projeto ou na configuração do ambiente antes de iniciar os serviços.
+
+Rotas de autenticação disponíveis:
+
+```text
+POST /auth/register
+POST /auth/login
+GET  /auth/me
+```
+
+O cadastro público cria somente um usuário morador com status `pending`. O
+acesso só é liberado depois que um administrador aprovar o cadastro. O corpo
+do cadastro deve conter `fullName`, `email`, `password`, `phone`, `birthDate`,
+`address` e `emergencyContact`; os dados opcionais do morador ficam em
+`residentProfile`.
+
+No painel web, a tela inicial **Entrar** possui o link **Ainda não tenho conta:
+criar cadastro**. O novo usuário informa seus dados e cria a própria senha
+privada (mínimo de 12 caracteres). Após o envio, a conta permanece como
+`pending` e o usuário deve aguardar a aprovação na seção **Usuários** por um
+administrador. Somente depois da aprovação ele poderá voltar à tela **Entrar**
+e acessar o sistema com o e-mail e a senha definidos no cadastro.
+
+Rotas administrativas de usuários exigem um token de administrador:
+
+```text
+GET   /users
+PATCH /users/:id/status
+PATCH /users/:id/roles
+PATCH /users/:id/profile
+PATCH /users/:id/password
+PATCH /auth/me/profile
+PATCH /auth/me/password
+```
+
+Senhas com menos de 12 caracteres são rejeitadas, inclusive em ambiente de
+teste. As variáveis `ADMIN_*` servem somente para criar o primeiro admin; a
+conta deve ser gerenciada pelas rotas autenticadas depois do bootstrap.
+
+O administrador pode alterar o próprio nome, e-mail, telefone, data de
+nascimento, endereço e contato de emergência com `PATCH /auth/me/profile`.
+Também pode trocar a própria senha com `PATCH /auth/me/password`, informando a
+senha atual e uma nova senha com pelo menos 12 caracteres. Depois do bootstrap,
+as variáveis `ADMIN_EMAIL` e `ADMIN_PASSWORD` não são usadas para atualizar a
+conta automaticamente.
+
+O painel web agora inicia com uma tela de login, persiste a sessão autenticada
+no navegador e monta a navegação conforme as permissões retornadas por
+`GET /auth/me`. A seção **Usuários** só aparece e pode ser acessada por contas com o papel
+`admin`; moradores e colaboradores não têm acesso. Nela, administradores podem listar, aprovar, suspender,
+reativar usuários e adicionar o papel de colaborador. Os papéis aparecem como
+badges de Morador, Colaborador e Administrador.
+
+O controle de acesso do backend continua obrigatório: ocultar uma seção no
+frontend não substitui `requireAuth` e `requirePermission` nas rotas da API.
 
 ### Painel web
 

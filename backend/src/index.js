@@ -7,6 +7,9 @@ import mqtt from 'mqtt';
 import { Server } from 'socket.io';
 import { Harvest } from './models/Harvest.js';
 import { Telemetry } from './models/Telemetry.js';
+import { seedInitialAdmin } from './auth/bootstrap.js';
+import { authRouter } from './auth/routes.js';
+import { usersRouter } from './auth/users-routes.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -82,6 +85,8 @@ io.on('connection', (socket) => {
 app.get('/health', (_request, response) =>
   response.json({ ok: true, service: 'horta-comunitaria-api' }),
 );
+app.use('/auth', authRouter);
+app.use('/users', usersRouter);
 app.get('/status', (_request, response) =>
   response.json(getStatus()),
 );
@@ -192,11 +197,13 @@ async function connectIntegrations() {
       await mongoose.connect(process.env.MONGO_URI, {
         serverSelectionTimeoutMS: 2500,
       });
-      await seedHarvests();
-      console.log('MongoDB conectado');
     } catch {
       console.log('MongoDB indisponível; usando memória');
+      return;
     }
+    await seedHarvests();
+    await seedInitialAdmin();
+    console.log('MongoDB conectado');
   }
 
   if (process.env.MQTT_BROKER) {
@@ -264,8 +271,11 @@ async function connectIntegrations() {
   }
 }
 
-connectIntegrations().catch(() =>
-  console.log('Falha ao inicializar integrações; usando memória'),
+connectIntegrations().catch((error) =>
+  console.error(
+    'Falha ao inicializar integrações:',
+    error instanceof Error ? error.message : error,
+  ),
 );
 httpServer.listen(port, () =>
   console.log(`Horta Comunitária API disponível em http://localhost:${port}`),
