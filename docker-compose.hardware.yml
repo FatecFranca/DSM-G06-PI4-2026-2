@@ -5,6 +5,11 @@ services:
     environment:
       PORT: 3000
       MONGO_URI: mongodb://mongo:27017/horta-comunitaria
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       MQTT_BROKER: mqtt://broker.hivemq.com:1883
     depends_on:
       mongo:
