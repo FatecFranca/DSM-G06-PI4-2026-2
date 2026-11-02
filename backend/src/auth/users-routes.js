@@ -38,6 +38,7 @@ async function audit(request, action, targetUserId, metadata = {}) {
     action,
     targetUserId,
     metadata,
+    ip: request.ip,
   });
 }
 
@@ -63,6 +64,35 @@ router.get('/', adminOnly, async (_request, response, next) => {
     if (ALL_USER_ROLES.includes(role)) filter.roles = role;
     const users = await User.find(filter).sort({ createdAt: -1 });
     response.json({ users: users.map(publicUser) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/stats', adminOnly, async (_request, response, next) => {
+  if (databaseUnavailable(response)) return;
+  try {
+    const [total, byStatus, byRole] = await Promise.all([
+      User.countDocuments(),
+      User.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+      User.aggregate([{ $unwind: '$roles' }, { $group: { _id: '$roles', count: { $sum: 1 } } }]),
+    ]);
+    response.json({
+      total,
+      statuses: Object.fromEntries(byStatus.map((item) => [item._id, item.count])),
+      roles: Object.fromEntries(byRole.map((item) => [item._id, item.count])),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id', adminOnly, async (request, response, next) => {
+  if (databaseUnavailable(response)) return;
+  try {
+    const user = await User.findById(request.params.id);
+    if (!user) return response.status(404).json({ error: 'Usuário não encontrado.' });
+    return response.json({ user: publicUser(user) });
   } catch (error) {
     next(error);
   }
@@ -171,10 +201,11 @@ router.patch('/:id/profile', adminOnly, async (request, response, next) => {
       response.status(404).json({ error: 'Usuário não encontrado.' });
       return;
     }
-    const { fullName, email, phone, birthDate, address, emergencyContact } =
+    const { fullName, email, cpf, phone, birthDate, address, emergencyContact } =
       request.body;
     if (typeof fullName === 'string' && fullName.trim().length >= 2) user.fullName = fullName.trim();
     if (typeof email === 'string' && email.trim()) user.email = normalizeEmail(email);
+    if (typeof cpf === 'string' && cpf.trim()) user.cpf = cpf.replace(/\D/g, '');
     if (typeof phone === 'string' && phone.trim()) user.phone = phone.trim();
     if (typeof address === 'string' && address.trim()) user.address = address.trim();
     if (typeof emergencyContact === 'string' && emergencyContact.trim()) {
@@ -196,7 +227,9 @@ router.patch('/:id/profile', adminOnly, async (request, response, next) => {
     response.json({ user: publicUser(user) });
   } catch (error) {
     if (error?.code === 11000) {
-      response.status(409).json({ error: 'E-mail já cadastrado.' });
+      response.status(409).json({
+        error: error.keyPattern?.cpf ? 'CPF já cadastrado.' : 'E-mail já cadastrado.',
+      });
       return;
     }
     next(error);
@@ -211,6 +244,26 @@ router.patch('/:id/password', adminOnly, async (request, response, next) => {
     response.status(422).json({
       error: passwordErrors.join(' '),
       passwordRules: ['Mínimo de 12 caracteres.'],
+    });
+
+    router.delete('/:id', adminOnly, async (request, response, next) => {
+      if (databaseUnavailable(response)) return;
+      try {
+        const user = await User.findById(request.params.id);
+        if (!user) return response.status(404).json({ error: 'Usuário não encontrado.' });
+        if (user._id.equals(request.user._id)) {
+          return response.status(409).json({ error: 'O administrador não pode excluir a própria conta.' });
+        }
+        if (user.roles.includes(USER_ROLES.ADMIN) && user.status === USER_STATUSES.ACTIVE &&
+          (await countActiveAdmins()) <= 1) {
+          return response.status(409).json({ error: 'Não é possível remover o último administrador ativo.' });
+        }
+        await user.deleteOne();
+        await audit(request, 'user.deleted', user._id);
+        return response.status(204).send();
+      } catch (error) {
+        next(error);
+      }
     });
     return;
   }

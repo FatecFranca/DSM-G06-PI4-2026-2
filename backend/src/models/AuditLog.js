@@ -16,6 +16,7 @@ const auditLogSchema = new mongoose.Schema(
       index: true,
     },
     metadata: { type: mongoose.Schema.Types.Mixed },
+    ip: { type: String, trim: true },
   },
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
 );

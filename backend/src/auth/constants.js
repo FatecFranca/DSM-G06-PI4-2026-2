@@ -1,5 +1,6 @@
 export const USER_ROLES = Object.freeze({
   RESIDENT: 'resident',
+  VOLUNTEER: 'volunteer',
   COLLABORATOR: 'collaborator',
   ADMIN: 'admin',
 });
@@ -18,6 +19,13 @@ export const ROLE_PERMISSIONS = Object.freeze({
     'reserve_harvest',
     'manage_own_profile',
   ],
+  [USER_ROLES.VOLUNTEER]: [
+    'view_dashboard',
+    'view_telemetry',
+    'view_harvests',
+    'register_activities',
+    'manage_own_profile',
+  ],
   [USER_ROLES.COLLABORATOR]: [
     'view_dashboard',
     'view_harvests',
@@ -25,6 +33,9 @@ export const ROLE_PERMISSIONS = Object.freeze({
     'manage_own_profile',
     'manage_harvests',
     'manage_reservations',
+    'view_telemetry',
+    'control_irrigation',
+    'manage_own_profile',
   ],
   [USER_ROLES.ADMIN]: [
     'view_dashboard',
@@ -38,6 +49,10 @@ export const ROLE_PERMISSIONS = Object.freeze({
     'change_user_roles',
     'suspend_users',
     'view_strategic_data',
+    'view_telemetry',
+    'control_irrigation',
+    'manage_permissions',
+    'manage_platform',
   ],
 });
 
