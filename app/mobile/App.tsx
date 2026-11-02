@@ -2,15 +2,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import { useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { HarvestScreen } from './src/screens/HarvestScreen';
 import { IrrigationScreen } from './src/screens/IrrigationScreen';
 import { StatusScreen } from './src/screens/StatusScreen';
+import { AuthScreen } from './src/screens/AuthScreen';
 import { colors } from './src/styles/theme';
 
 const Tab = createBottomTabNavigator();
 
 export default function App() {
+  const [authenticated, setAuthenticated] = useState(false);
+  if (!authenticated) return <AuthScreen onAuthenticated={() => setAuthenticated(true)} />;
   return (
     <NavigationContainer>
       <StatusBar style="dark" />

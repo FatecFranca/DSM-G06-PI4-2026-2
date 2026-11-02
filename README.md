@@ -317,13 +317,19 @@ Rotas de autenticação disponíveis:
 POST /auth/register
 POST /auth/login
 GET  /auth/me
+POST /auth/forgot-password
+POST /auth/reset-password
 ```
 
-O cadastro público cria somente um usuário morador com status `pending`. O
-acesso só é liberado depois que um administrador aprovar o cadastro. O corpo
-do cadastro deve conter `fullName`, `email`, `password`, `phone`, `birthDate`,
-`address` e `emergencyContact`; os dados opcionais do morador ficam em
-`residentProfile`.
+O cadastro público aceita os papéis `resident`, `volunteer` e `collaborator`
+(administrador nunca pode ser solicitado diretamente) e cria a conta com
+status `pending`. O acesso só é liberado depois que um administrador aprovar o
+cadastro. O corpo deve conter `fullName`, `email`, `cpf`, `password`,
+`confirmPassword`, `requestedRole`, `phone`, `birthDate`, `address` e
+`emergencyContact`; os dados opcionais do morador ficam em `residentProfile`.
+Registros criados antes da inclusão do CPF continuam acessíveis e devem ter o
+campo preenchido pelo administrador em `/users/:id/profile`; novos cadastros
+não podem omitir um CPF válido.
 
 No painel web, a tela inicial **Entrar** possui o link **Ainda não tenho conta:
 criar cadastro**. O novo usuário informa seus dados e cria a própria senha
@@ -336,17 +342,24 @@ Rotas administrativas de usuários exigem um token de administrador:
 
 ```text
 GET   /users
+GET   /users/stats
+GET   /users/:id
 PATCH /users/:id/status
 PATCH /users/:id/roles
 PATCH /users/:id/profile
 PATCH /users/:id/password
+DELETE /users/:id
 PATCH /auth/me/profile
 PATCH /auth/me/password
 ```
 
 Senhas com menos de 12 caracteres são rejeitadas, inclusive em ambiente de
-teste. As variáveis `ADMIN_*` servem somente para criar o primeiro admin; a
-conta deve ser gerenciada pelas rotas autenticadas depois do bootstrap.
+teste. O CPF e o telefone também são validados. A recuperação de senha usa
+tokens de uso único com expiração de uma hora; em desenvolvimento o link é
+impresso no log do backend e, em produção, deve ser conectado ao provedor de
+e-mail da implantação. As variáveis `ADMIN_*` servem somente para criar o
+primeiro admin; a conta deve ser gerenciada pelas rotas autenticadas depois do
+bootstrap.
 
 O administrador pode alterar o próprio nome, e-mail, telefone, data de
 nascimento, endereço e contato de emergência com `PATCH /auth/me/profile`.
