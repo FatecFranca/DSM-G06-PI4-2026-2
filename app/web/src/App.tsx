@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
+  Activity,
   Bell,
   CalendarDays,
   ChevronDown,
@@ -151,6 +152,7 @@ const navigationItems = [
   { label: 'Irrigação', Icon: Droplets },
   { label: 'Colheitas', Icon: Sprout },
   { label: 'Histórico', Icon: History },
+  { label: 'Estatísticas', Icon: Activity },
   { label: 'Usuários', Icon: Users, permission: 'view_users' },
   { label: 'Meu perfil', Icon: Users },
 ];
@@ -246,9 +248,9 @@ function App() {
   }));
 
   const intervalHours =
-  historyRange === '24' ? 0.25 :
-  historyRange === '168' ? 1 :
-  4;
+    historyRange === '24' ? 0.25 :
+      historyRange === '168' ? 1 :
+        4;
 
   const chartDisplayData = Object.values(
     chartData.reduce((groups, item) => {
@@ -554,7 +556,7 @@ function App() {
         const withoutDuplicate = current.filter(
           (item) => item.timestamp !== telemetry.timestamp,
         );
-        return [telemetry, ...withoutDuplicate].slice(0, 100);
+        return [...withoutDuplicate, telemetry];
       });
     };
     socket.on('connect', () => {
@@ -862,9 +864,11 @@ function App() {
                     ? 'Cadastre, acompanhe e reserve alimentos da horta.'
                     : activeSection === 'Histórico'
                       ? 'Acompanhe a evolução da umidade do solo.'
-                      : activeSection === 'Irrigação'
-                        ? 'Controle o sistema e acompanhe o estado atual.'
-                        : 'Aqui está o que está acontecendo na horta hoje.'}
+                      : activeSection === 'Estatísticas'
+                        ? 'Analise os dados dos sensores, médias e variações.'
+                        : activeSection === 'Irrigação'
+                          ? 'Controle o sistema e acompanhe o estado atual.'
+                          : 'Aqui está o que está acontecendo na horta hoje.'}
               </p>
             </div>
             {activeSection !== 'Usuários' &&
@@ -1043,405 +1047,429 @@ function App() {
               </div>
             </div>
           </div>
-        <div
-          className={`sensor-statistics-grid ${activeSection !== 'Visão geral' && activeSection !== 'Histórico' ? 'section-hidden' : ''}`}
-        >
-          <div className="stat-card">
-            <div className="stat-top">
-              <span>UMIDADE DO SOLO — MÉDIA</span>
-            </div>
-            <div className="stat-value">
-              {soilStatistics.count > 0 ? soilStatistics.mean.toFixed(1) : '--'}
-              <small>%</small>
-            </div>
-            <div className="stat-foot">
-              Desvio padrão: <strong>{soilStatistics.count > 0 ? `${soilStatistics.standardDeviation.toFixed(1)}%` : '--'}</strong>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-top">
-              <span>TEMPERATURA — MÉDIA</span>
-            </div>
-            <div className="stat-value">
-              {temperatureStatistics.count > 0 ? temperatureStatistics.mean.toFixed(1) : '--'}
-              <small>°C</small>
-            </div>
-            <div className="stat-foot">
-              Desvio padrão: <strong>{temperatureStatistics.count > 0 ? `${temperatureStatistics.standardDeviation.toFixed(1)} °C` : '--'}</strong>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-top">
-              <span>UMIDADE DO AR — MÉDIA</span>
-            </div>
-            <div className="stat-value">
-              {humidityStatistics.count > 0 ? humidityStatistics.mean.toFixed(1) : '--'}
-              <small>%</small>
-            </div>
-            <div className="stat-foot">
-              Desvio padrão: <strong>{humidityStatistics.count > 0 ? `${humidityStatistics.standardDeviation.toFixed(1)}%` : '--'}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div
-          className={`dashboard-grid ${activeSection === 'Colheitas' ? 'section-hidden' : ''}`}
-        >
-          <section
-            className={`panel chart-panel ${activeSection !== 'Visão geral' && activeSection !== 'Histórico' ? 'section-hidden' : ''}`}
+          <div
+            className={`sensor-statistics-grid ${activeSection !== 'Estatísticas' ? 'section-hidden' : ''}`}
           >
-            <div className="panel-heading">
-              <div>
-                <h2>Umidade do solo</h2>
-                <p>
-                  {historyRange === '24'
-                    ? 'Últimas 24 horas'
-                    : historyRange === '168'
-                      ? 'Últimos 7 dias'
-                      : 'Últimos 30 dias'}
-                </p>
+            <div className="stat-card">
+              <div className="stat-top">
+                <span>UMIDADE DO SOLO — MÉDIA</span>
               </div>
-              <select
-                className="select-button"
-                value={historyRange}
-                onChange={(event) => setHistoryRange(event.target.value)}
-                aria-label="Período do histórico"
-              >
-                <option value="24">24 horas</option>
-                <option value="168">7 dias</option>
-                <option value="720">30 dias</option>
-              </select>
+              <div className="stat-value">
+                {soilStatistics.count > 0 ? soilStatistics.mean.toFixed(1) : '--'}
+                <small>%</small>
+              </div>
+              <div className="stat-foot">
+                Desvio padrão: <strong>{soilStatistics.count > 0 ? `${soilStatistics.standardDeviation.toFixed(1)}%` : '--'}</strong>
+              </div>
+              <div className="stat-foot">
+                Registros utilizados: <strong>{soilStatistics.count}</strong>
+              </div>
+              <div className="stat-foot">
+                Período analisado: <strong>
+                  {historyRange === '24' ? 'Últimas 24 horas' : historyRange === '168' ? 'Últimos 7 dias' : 'Últimos 30 dias'}
+                </strong>
+              </div>
             </div>
-            <div className="chart">
-              <div className="chart-area">
-                <ResponsiveContainer width="100%" height={207}>
-                  <LineChart
-                    data={chartDisplayData}
-                    margin={{ top: 12, right: 8, bottom: 4, left: 0 }}
-                    role="img"
-                    aria-label="Gráfico de umidade do solo"
-                  >
-                    <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
-                    <ReferenceArea
-                      y1={50}
-                      y2={70}
-                      fill="#7cae7f"
-                      fillOpacity={0.12}
-                    />
-                    {soilStatistics.count > 0 && (
-                      <ReferenceLine
-                        y={soilStatistics.mean}
-                        stroke="#d28a32"
-                        strokeDasharray="5 5"
-                        label={{
-                          value: `Média: ${soilStatistics.mean.toFixed(1)}%`,
-                          position: 'insideTopRight',
-                          fill: '#d28a32',
-                          fontSize: 10,
+
+            <div className="stat-card">
+              <div className="stat-top">
+                <span>TEMPERATURA — MÉDIA</span>
+              </div>
+              <div className="stat-value">
+                {temperatureStatistics.count > 0 ? temperatureStatistics.mean.toFixed(1) : '--'}
+                <small>°C</small>
+              </div>
+              <div className="stat-foot">
+                Desvio padrão: <strong>{temperatureStatistics.count > 0 ? `${temperatureStatistics.standardDeviation.toFixed(1)} °C` : '--'}</strong>
+              </div>
+              <div className="stat-foot">
+                Registros utilizados: <strong>{temperatureStatistics.count}</strong>
+              </div>
+              <div className="stat-foot">
+                Período analisado: <strong>
+                  {historyRange === '24' ? 'Últimas 24 horas' : historyRange === '168' ? 'Últimos 7 dias' : 'Últimos 30 dias'}
+                </strong>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-top">
+                <span>UMIDADE DO AR — MÉDIA</span>
+              </div>
+              <div className="stat-value">
+                {humidityStatistics.count > 0 ? humidityStatistics.mean.toFixed(1) : '--'}
+                <small>%</small>
+              </div>
+              <div className="stat-foot">
+                Desvio padrão: <strong>{humidityStatistics.count > 0 ? `${humidityStatistics.standardDeviation.toFixed(1)}%` : '--'}</strong>
+              </div>
+              <div className="stat-foot">
+                Registros utilizados: <strong>{humidityStatistics.count}</strong>
+              </div>
+              <div className="stat-foot">
+                Período analisado: <strong>
+                  {historyRange === '24' ? 'Últimas 24 horas' : historyRange === '168' ? 'Últimos 7 dias' : 'Últimos 30 dias'}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`dashboard-grid ${activeSection === 'Colheitas' ? 'section-hidden' : ''}`}
+          >
+            <section
+              className={`panel chart-panel ${activeSection !== 'Histórico' && activeSection !== 'Estatísticas' ? 'section-hidden' : ''}`}
+            >
+              <div className="panel-heading">
+                <div>
+                  <h2>Umidade do solo</h2>
+                  <p>
+                    {historyRange === '24'
+                      ? 'Últimas 24 horas'
+                      : historyRange === '168'
+                        ? 'Últimos 7 dias'
+                        : 'Últimos 30 dias'}
+                  </p>
+                </div>
+                <select
+                  className="select-button"
+                  value={historyRange}
+                  onChange={(event) => setHistoryRange(event.target.value)}
+                  aria-label="Período do histórico"
+                >
+                  <option value="24">24 horas</option>
+                  <option value="168">7 dias</option>
+                  <option value="720">30 dias</option>
+                </select>
+              </div>
+              <div className="chart">
+                <div className="chart-area">
+                  <ResponsiveContainer width="100%" height={207}>
+                    <LineChart
+                      data={chartDisplayData}
+                      margin={{ top: 12, right: 8, bottom: 4, left: 0 }}
+                      role="img"
+                      aria-label="Gráfico de umidade do solo"
+                    >
+                      <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
+                      <ReferenceArea
+                        y1={50}
+                        y2={70}
+                        fill="#7cae7f"
+                        fillOpacity={0.12}
+                      />
+                      {soilStatistics.count > 0 && (
+                        <ReferenceLine
+                          y={soilStatistics.mean}
+                          stroke="#d28a32"
+                          strokeDasharray="5 5"
+                          label={{
+                            value: `Média: ${soilStatistics.mean.toFixed(1)}%`,
+                            position: 'insideTopRight',
+                            fill: '#d28a32',
+                            fontSize: 10,
+                          }}
+                        />
+                      )}
+
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: '#aab3ac', fontSize: 9 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        ticks={[0, 20, 40, 60, 80, 100]}
+                        tick={{ fill: '#aab3ac', fontSize: 9 }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(value) => `${value}%`}
+                        width={34}
+                      />
+                      <Tooltip
+                        formatter={(value) => [`${value}%`, 'Umidade']}
+                        contentStyle={{
+                          border: '1px solid #e4e9e2',
+                          borderRadius: 6,
+                          fontSize: 11,
                         }}
                       />
-                    )}
-
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: '#aab3ac', fontSize: 9 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      domain={[0, 100]}
-                      ticks={[0, 20, 40, 60, 80, 100]}
-                      tick={{ fill: '#aab3ac', fontSize: 9 }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(value) => `${value}%`}
-                      width={34}
-                    />
-                    <Tooltip
-                      formatter={(value) => [`${value}%`, 'Umidade']}
-                      contentStyle={{
-                        border: '1px solid #e4e9e2',
-                        borderRadius: 6,
-                        fontSize: 11,
-                      }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="soilMoisture"
-                      stroke="#3f7a4b"
-                      strokeWidth={3}
-                      dot={false}
-                      activeDot={{ r: 4, fill: '#3f7a4b' }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                      <Line
+                        type="monotone"
+                        dataKey="soilMoisture"
+                        stroke="#3f7a4b"
+                        strokeWidth={3}
+                        dot={false}
+                        activeDot={{ r: 4, fill: '#3f7a4b' }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
-            <div className="chart-legend">
-              <span>
-                <i className="legend-dot"></i> Umidade registrada
-              </span>
-              <span>
-                <i className="legend-line"></i> Faixa ideal: 50% - 70%
-              </span>
-            </div>
-          </section>
-
-          {/* Gráfico de temperatura */}
-          <section
-            className={`panel chart-panel ${activeSection !== 'Visão geral' && activeSection !== 'Histórico' ? 'section-hidden' : ''}`}
-          >
-            <div className="panel-heading">
-              <div>
-                <h2>Temperatura</h2>
-                <p>Histórico do período selecionado</p>
+              <div className="chart-legend">
+                <span>
+                  <i className="legend-dot"></i> Umidade registrada
+                </span>
+                <span>
+                  <i className="legend-line"></i> Faixa ideal: 50% - 70%
+                </span>
               </div>
-            </div>
+            </section>
 
-            <div className="chart">
-              <div className="chart-area">
-                <ResponsiveContainer width="100%" height={207}>
-                  <LineChart data={chartDisplayData}>
-                    <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                    <YAxis unit="°C" />
-                    <Tooltip />
-                    <Line
-                      type="monotone"
-                      dataKey="temperature"
-                      name="Temperatura"
-                      stroke="#d28a32"
-                      strokeWidth={3}
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </section>
-
-          {/* Gráfico de umidade relativa do ar */}
-          <section
-            className={`panel chart-panel ${activeSection !== 'Visão geral' && activeSection !== 'Histórico' ? 'section-hidden' : ''}`}
-          >
-            <div className="panel-heading">
-              <div>
-                <h2>Umidade relativa do ar</h2>
-                <p>Histórico do período selecionado</p>
-              </div>
-            </div>
-
-            <div className="chart">
-              <div className="chart-area">
-                <ResponsiveContainer width="100%" height={207}>
-                  <LineChart data={chartDisplayData}>
-                    <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                    <YAxis unit="%" />
-                    <Tooltip />
-                    <Line
-                      type="monotone"
-                      dataKey="humidity"
-                      name="Umidade do ar"
-                      stroke="#4b91b5"
-                      strokeWidth={3}
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </section>
-
-          <section
-            className={`panel irrigation-panel ${activeSection !== 'Visão geral' && activeSection !== 'Irrigação' ? 'section-hidden' : ''}`}
-          >
-
-            <div className="panel-heading">
-              <div>
-                <h2>Irrigação</h2>
-                <p>Controle do sistema</p>
-              </div>
-              <span
-                className={irrigationOn ? 'toggle-label on' : 'toggle-label'}
-              >
-                {irrigationOn ? 'Ligada' : 'Desligada'}
-              </span>
-            </div>
-            <div
-              className={
-                irrigationOn ? 'water-visual running' : 'water-visual'
-              }
+            {/* Gráfico de temperatura */}
+            <section
+              className={`panel chart-panel ${activeSection !== 'Visão geral' && activeSection !== 'Histórico' && activeSection !== 'Estatísticas' ? 'section-hidden' : ''}`}
             >
-              <div className="water-circle">
-                <Droplets size={28} className="drop" />
+              <div className="panel-heading">
+                <div>
+                  <h2>Temperatura</h2>
+                  <p>Histórico do período selecionado</p>
+                </div>
               </div>
-              <div className="ripple ripple-one"></div>
-              <div className="ripple ripple-two"></div>
-            </div>
-            <div className="irrigation-state">
-              <strong>{statusLabel}</strong>
-              <span>Último ciclo: hoje, 06:15 · 8 min</span>
-            </div>
-            <button
-              className={
-                irrigationOn ? 'irrigation-button stop' : 'irrigation-button'
-              }
-              onClick={toggleIrrigation}
-              disabled={irrigationPending || !status}
+
+              <div className="chart">
+                <div className="chart-area">
+                  <ResponsiveContainer width="100%" height={207}>
+                    <LineChart data={chartDisplayData}>
+                      <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis unit="°C" />
+                      <Tooltip />
+                      <Line
+                        type="monotone"
+                        dataKey="temperature"
+                        name="Temperatura"
+                        stroke="#d28a32"
+                        strokeWidth={3}
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </section>
+
+            {/* Gráfico de umidade relativa do ar */}
+            <section
+              className={`panel chart-panel ${activeSection !== 'Histórico' && activeSection !== 'Estatísticas' ? 'section-hidden' : ''}`}
             >
-              {irrigationOn ? <Square size={12} /> : <Play size={12} />}
-              {irrigationPending
-                ? 'Enviando comando...'
-                : irrigationOn
-                  ? 'Desligar irrigação'
-                  : 'Ligar irrigação'}
-            </button>
-            {status?.irrigation.mode === 'manual' && (
-              <button
-                className="text-button automatic-button"
-                onClick={resumeAutomatic}
-                disabled={irrigationPending}
-              >
-                Retomar modo automático
-              </button>
-            )}
-          </section>
-        </div>
-        <section
-          className={`panel harvest-panel ${activeSection !== 'Visão geral' && activeSection !== 'Colheitas' ? 'section-hidden' : ''}`}
-        >
-          <div className="panel-heading">
-            <div>
-              <h2>Próximas colheitas</h2>
-              <p>Organize a distribuição dos alimentos</p>
-            </div>
-            {activeSection === 'Visão geral' ? (
-              <button
-                className="text-button"
-                onClick={() => setActiveSection('Colheitas')}
-              >
-                Ver calendário <span>→</span>
-              </button>
-            ) : (
-              <select
-                className="select-button"
-                value={harvestFilter}
-                onChange={(event) =>
-                  setHarvestFilter(event.target.value as 'all' | 'available')
-                }
-                aria-label="Filtrar colheitas"
-              >
-                <option value="all">Todas</option>
-                <option value="available">Disponíveis</option>
-              </select>
-            )}
-          </div>
-          <div className="harvest-list">
-            {filteredHarvests.map((harvest) => (
-              <div
-                className="harvest-row"
-                key={harvest.id || `${harvest.crop}-${harvest.harvestDate}`}
-              >
-                <div className="crop-avatar">{harvest.crop.charAt(0)}</div>
-                <div className="crop-info">
-                  <strong>{harvest.crop}</strong>
-                  <span>
-                    {formatDate(harvest.harvestDate)} ·{' '}
-                    {harvest.quantity || 'A definir'}
-                  </span>
+              <div className="panel-heading">
+                <div>
+                  <h2>Umidade relativa do ar</h2>
+                  <p>Histórico do período selecionado</p>
+                </div>
+              </div>
+
+              <div className="chart">
+                <div className="chart-area">
+                  <ResponsiveContainer width="100%" height={207}>
+                    <LineChart data={chartDisplayData}>
+                      <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis unit="%" />
+                      <Tooltip />
+                      <Line
+                        type="monotone"
+                        dataKey="humidity"
+                        name="Umidade do ar"
+                        stroke="#4b91b5"
+                        strokeWidth={3}
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </section>
+
+            <section
+              className={`panel irrigation-panel ${activeSection !== 'Visão geral' && activeSection !== 'Irrigação' ? 'section-hidden' : ''}`}
+            >
+
+              <div className="panel-heading">
+                <div>
+                  <h2>Irrigação</h2>
+                  <p>Controle do sistema</p>
                 </div>
                 <span
-                  className={
-                    harvest.available
-                      ? 'status-pill ready'
-                      : 'status-pill upcoming'
-                  }
+                  className={irrigationOn ? 'toggle-label on' : 'toggle-label'}
                 >
-                  {harvest.available ? 'Disponível' : 'Reservada'}
+                  {irrigationOn ? 'Ligada' : 'Desligada'}
                 </span>
-                {activeSection === 'Colheitas' && harvest.available && (
-                  <button
-                    className="reserve-button"
-                    onClick={() => reserveHarvest(harvest)}
-                    disabled={reservingId === harvest.id}
-                  >
-                    {reservingId === harvest.id
-                      ? 'Reservando...'
-                      : 'Reservar'}
-                  </button>
-                )}
               </div>
-            ))}
-            {!filteredHarvests.length && (
-              <div className="empty-state">Nenhuma colheita encontrada.</div>
-            )}
+              <div
+                className={
+                  irrigationOn ? 'water-visual running' : 'water-visual'
+                }
+              >
+                <div className="water-circle">
+                  <Droplets size={28} className="drop" />
+                </div>
+                <div className="ripple ripple-one"></div>
+                <div className="ripple ripple-two"></div>
+              </div>
+              <div className="irrigation-state">
+                <strong>{statusLabel}</strong>
+                <span>Último ciclo: hoje, 06:15 · 8 min</span>
+              </div>
+              <button
+                className={
+                  irrigationOn ? 'irrigation-button stop' : 'irrigation-button'
+                }
+                onClick={toggleIrrigation}
+                disabled={irrigationPending || !status}
+              >
+                {irrigationOn ? <Square size={12} /> : <Play size={12} />}
+                {irrigationPending
+                  ? 'Enviando comando...'
+                  : irrigationOn
+                    ? 'Desligar irrigação'
+                    : 'Ligar irrigação'}
+              </button>
+              {status?.irrigation.mode === 'manual' && (
+                <button
+                  className="text-button automatic-button"
+                  onClick={resumeAutomatic}
+                  disabled={irrigationPending}
+                >
+                  Retomar modo automático
+                </button>
+              )}
+            </section>
           </div>
-        </section>
-        <footer className="page-footer">
-          <span>
-            <span className="footer-leaf">✦</span> Cultivando juntos, colhendo
-            futuro.
-          </span>
-          <span>Horta Norte · Piloto comunitário</span>
-        </footer>
-      </section>
-    </main>
-      {
-    showForm && (
-      <div className="modal-backdrop" onClick={() => setShowForm(false)}>
-        <form
-          className="modal"
-          onSubmit={addHarvest}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            type="button"
-            className="modal-close"
-            onClick={() => setShowForm(false)}
+          <section
+            className={`panel harvest-panel ${activeSection !== 'Visão geral' && activeSection !== 'Colheitas' ? 'section-hidden' : ''}`}
           >
-            ×
-          </button>
-          <p className="eyebrow">CALENDÁRIO</p>
-          <h2>Nova colheita</h2>
-          <label>
-            Hortaliça
-            <input
-              value={newCrop}
-              onChange={(event) => setNewCrop(event.target.value)}
-              placeholder="Ex.: Manjericão"
-              required
-            />
-          </label>
-          <label>
-            Data e horário
-            <input
-              type="datetime-local"
-              value={newDate}
-              onChange={(event) => setNewDate(event.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Quantidade
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={newQuantity}
-              onChange={(event) => setNewQuantity(event.target.value)}
-              placeholder="Ex.: 24"
-            />
-          </label>
-          <button className="primary-button" type="submit">
-            Adicionar ao calendário
-          </button>
-        </form>
-      </div>
-    )
-  }
+            <div className="panel-heading">
+              <div>
+                <h2>Próximas colheitas</h2>
+                <p>Organize a distribuição dos alimentos</p>
+              </div>
+              {activeSection === 'Visão geral' ? (
+                <button
+                  className="text-button"
+                  onClick={() => setActiveSection('Colheitas')}
+                >
+                  Ver calendário <span>→</span>
+                </button>
+              ) : (
+                <select
+                  className="select-button"
+                  value={harvestFilter}
+                  onChange={(event) =>
+                    setHarvestFilter(event.target.value as 'all' | 'available')
+                  }
+                  aria-label="Filtrar colheitas"
+                >
+                  <option value="all">Todas</option>
+                  <option value="available">Disponíveis</option>
+                </select>
+              )}
+            </div>
+            <div className="harvest-list">
+              {filteredHarvests.map((harvest) => (
+                <div
+                  className="harvest-row"
+                  key={harvest.id || `${harvest.crop}-${harvest.harvestDate}`}
+                >
+                  <div className="crop-avatar">{harvest.crop.charAt(0)}</div>
+                  <div className="crop-info">
+                    <strong>{harvest.crop}</strong>
+                    <span>
+                      {formatDate(harvest.harvestDate)} ·{' '}
+                      {harvest.quantity || 'A definir'}
+                    </span>
+                  </div>
+                  <span
+                    className={
+                      harvest.available
+                        ? 'status-pill ready'
+                        : 'status-pill upcoming'
+                    }
+                  >
+                    {harvest.available ? 'Disponível' : 'Reservada'}
+                  </span>
+                  {activeSection === 'Colheitas' && harvest.available && (
+                    <button
+                      className="reserve-button"
+                      onClick={() => reserveHarvest(harvest)}
+                      disabled={reservingId === harvest.id}
+                    >
+                      {reservingId === harvest.id
+                        ? 'Reservando...'
+                        : 'Reservar'}
+                    </button>
+                  )}
+                </div>
+              ))}
+              {!filteredHarvests.length && (
+                <div className="empty-state">Nenhuma colheita encontrada.</div>
+              )}
+            </div>
+          </section>
+          <footer className="page-footer">
+            <span>
+              <span className="footer-leaf">✦</span> Cultivando juntos, colhendo
+              futuro.
+            </span>
+            <span>Horta Norte · Piloto comunitário</span>
+          </footer>
+        </section >
+      </main >
+      {
+        showForm && (
+          <div className="modal-backdrop" onClick={() => setShowForm(false)}>
+            <form
+              className="modal"
+              onSubmit={addHarvest}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setShowForm(false)}
+              >
+                ×
+              </button>
+              <p className="eyebrow">CALENDÁRIO</p>
+              <h2>Nova colheita</h2>
+              <label>
+                Hortaliça
+                <input
+                  value={newCrop}
+                  onChange={(event) => setNewCrop(event.target.value)}
+                  placeholder="Ex.: Manjericão"
+                  required
+                />
+              </label>
+              <label>
+                Data e horário
+                <input
+                  type="datetime-local"
+                  value={newDate}
+                  onChange={(event) => setNewDate(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Quantidade
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={newQuantity}
+                  onChange={(event) => setNewQuantity(event.target.value)}
+                  placeholder="Ex.: 24"
+                />
+              </label>
+              <button className="primary-button" type="submit">
+                Adicionar ao calendário
+              </button>
+            </form>
+          </div>
+        )
+      }
     </div >
   );
 }
