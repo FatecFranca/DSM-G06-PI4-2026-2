@@ -1047,3 +1047,35 @@ nav {
     gap: 8px;
   }
 }
+/* Estatísticas dos sensores */
+.sensor-statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+  margin-bottom: 18px;
+}
+
+.sensor-statistics-grid .stat-card {
+  min-height: 125px;
+}
+
+.sensor-statistics-grid .stat-value {
+  margin-top: 14px;
+}
+
+.sensor-statistics-grid .stat-foot {
+  margin-top: 10px;
+}
+
+@media (max-width: 900px) {
+  .sensor-statistics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .sensor-statistics-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+}

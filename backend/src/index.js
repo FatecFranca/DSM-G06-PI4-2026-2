@@ -94,9 +94,30 @@ app.use('/users', usersRouter);
 app.get('/status', requireAuth, (_request, response) =>
   response.json(getStatus()),
 );
-app.get('/telemetry/history', requireAuth, (_request, response) =>
-  response.json(telemetryHistory.slice(-100).reverse()),
-);
+app.get('/telemetry/history', requireAuth, async (_request, response) => {
+  try {
+    if (!isMongoReady()) {
+      return response.json(telemetryHistory.slice(-100).reverse());
+    }
+
+    const thirtyDaysAgo = new Date(
+      Date.now() - 30 * 24 * 60 * 60 * 1000,
+    );
+
+    const history = await Telemetry.find({
+      timestamp: { $gte: thirtyDaysAgo },
+    })
+      .sort({ timestamp: 1 })
+      .lean();
+
+    response.json(history);
+  } catch (error) {
+    console.error('Falha ao consultar histórico:', error);
+    response.status(500).json({
+      error: 'Não foi possível consultar o histórico de telemetrias.',
+    });
+  }
+});
 app.post('/irrigation', requireAuth, requirePermission('control_irrigation'), (request, response) => {
   const { action, mode = 'manual' } = request.body;
   if (!['on', 'off', 'auto'].includes(action))
