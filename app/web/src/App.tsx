@@ -703,6 +703,40 @@ function App() {
   }, [session]);
 
   useEffect(() => {
+    if (!session?.token) return;
+    let cancelled = false;
+    void requestApi<{ user: User; permissions: string[] }>(
+      '/auth/me',
+      undefined,
+      session.token,
+    )
+      .then((current) => {
+        if (cancelled) return;
+        const rolesChanged =
+          JSON.stringify(current.user.roles) !== JSON.stringify(session.user.roles);
+        const permissionsChanged =
+          JSON.stringify(current.permissions) !== JSON.stringify(session.permissions);
+        if (rolesChanged || permissionsChanged || current.user.updatedAt !== session.user.updatedAt) {
+          const nextSession = {
+            ...session,
+            user: current.user,
+            permissions: current.permissions,
+          };
+          setSession(nextSession);
+          localStorage.setItem('horta-session', JSON.stringify(nextSession));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled && error instanceof Error && error.message === 'Sessão inválida.') {
+          logout();
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.token]);
+
+  useEffect(() => {
     if (activeSection === 'Usuários' && !canManageUsers) {
       setActiveSection('Visão geral');
       return;
