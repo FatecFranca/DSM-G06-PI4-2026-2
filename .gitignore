@@ -25,3 +25,7 @@ dist-ssr
 
 # Security Info
 .env
+
+# Arquivos locais de backup
+*.backup.*
+*.bak

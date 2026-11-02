@@ -91,6 +91,8 @@ void publishTelemetry() {
   float temperature = dht.readTemperature();
   int soilRaw = analogRead(SOIL_PIN);
   int soilMoisture = map(soilRaw, 0, 4095, 100, 0);
+  Serial.print("Leitura bruta do solo: ");
+  Serial.println(soilRaw);
 
   // Histerese: liga abaixo de 40%, desliga acima de 60%
   if (!manualOverride && soilMoisture < 40 && !irrigationOn) {
