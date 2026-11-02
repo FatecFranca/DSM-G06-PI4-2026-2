@@ -52,3 +52,12 @@ export function requireRole(...roles) {
     return next();
   };
 }
+
+export function requireAnyPermission(...permissions) {
+  return (request, response, next) => {
+    if (!permissions.some((permission) => request.auth?.permissions.includes(permission))) {
+      return response.status(403).json({ error: 'Permissão insuficiente.' });
+    }
+    return next();
+  };
+}
