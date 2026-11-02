@@ -17,7 +17,11 @@ export async function requireAuth(request, response, next) {
   try {
     const payload = verifyAuthToken(token);
     const user = await User.findById(payload.sub).select('+passwordHash');
-    if (!user || user.status !== USER_STATUSES.ACTIVE) {
+    if (
+      !user ||
+      user.status !== USER_STATUSES.ACTIVE ||
+      (payload.authVersion || 0) !== (user.authVersion || 0)
+    ) {
       return response.status(401).json({ error: 'Sessão inválida.' });
     }
     request.user = user;

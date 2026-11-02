@@ -8,6 +8,7 @@ import { createAuthToken } from './token.js';
 import { getPasswordPolicyErrors } from './password-policy.js';
 import { User } from '../models/User.js';
 import { AuditLog } from '../models/AuditLog.js';
+import { sendPasswordResetEmail } from './mailer.js';
 
 const router = Router();
 
@@ -230,68 +231,69 @@ router.patch('/me/profile', requireAuth, async (request, response, next) => {
       user: request.user.toPublicJSON(),
       permissions: request.auth.permissions,
     });
-
-    router.post('/forgot-password', async (request, response, next) => {
-      if (!requireDatabase(response)) return;
-      const email = normalizeEmail(request.body.email);
-      if (!email) {
-        response.status(422).json({ error: 'E-mail é obrigatório.' });
-        return;
-      }
-      try {
-        const user = await User.findOne({ email }).select('+passwordResetTokenHash +passwordResetExpiresAt');
-        if (user) {
-          const token = crypto.randomBytes(32).toString('hex');
-          user.passwordResetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
-          user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
-          await user.save();
-          const resetUrl = `${process.env.WEB_APP_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
-          if (process.env.NODE_ENV !== 'production') console.info(`Link de recuperação para ${email}: ${resetUrl}`);
-        }
-        response.json({ message: 'Se o e-mail estiver cadastrado, enviaremos um link de recuperação.' });
-      } catch (error) {
-        next(error);
-      }
-    });
-
-    router.post('/reset-password', async (request, response, next) => {
-      if (!requireDatabase(response)) return;
-      const { token, password, confirmPassword } = request.body;
-      const passwordErrors = getPasswordPolicyErrors(password);
-      if (passwordErrors.length > 0 || password !== confirmPassword) {
-        response.status(422).json({ error: passwordErrors.join(' ') || 'As senhas não conferem.' });
-        return;
-      }
-      try {
-        const tokenHash = crypto.createHash('sha256').update(String(token || '')).digest('hex');
-        const user = await User.findOne({
-          passwordResetTokenHash: tokenHash,
-          passwordResetExpiresAt: { $gt: new Date() },
-        }).select('+passwordResetTokenHash +passwordResetExpiresAt');
-        if (!user) {
-          response.status(400).json({ error: 'Link de recuperação inválido ou expirado.' });
-          return;
-        }
-        user.passwordHash = await hashPassword(password);
-        user.passwordResetTokenHash = undefined;
-        user.passwordResetExpiresAt = undefined;
-        await user.save();
-        await AuditLog.create({
-          actorUserId: user._id,
-          action: 'user.password_reset',
-          targetUserId: user._id,
-          ip: request.ip,
-        });
-        response.json({ message: 'Senha redefinida com sucesso.' });
-      } catch (error) {
-        next(error);
-      }
-    });
   } catch (error) {
     if (error?.code === 11000) {
       response.status(409).json({ error: 'E-mail já cadastrado.' });
       return;
     }
+    next(error);
+  }
+});
+
+router.post('/forgot-password', async (request, response, next) => {
+  if (!requireDatabase(response)) return;
+  const email = normalizeEmail(request.body.email);
+  if (!email) {
+    response.status(422).json({ error: 'E-mail é obrigatório.' });
+    return;
+  }
+  try {
+    const user = await User.findOne({ email }).select('+passwordResetTokenHash +passwordResetExpiresAt');
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      user.passwordResetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await user.save();
+      const resetUrl = `${process.env.WEB_APP_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+      await sendPasswordResetEmail({ email, resetUrl });
+    }
+    response.json({ message: 'Se o e-mail estiver cadastrado, enviaremos um link de recuperação.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/reset-password', async (request, response, next) => {
+  if (!requireDatabase(response)) return;
+  const { token, password, confirmPassword } = request.body;
+  const passwordErrors = getPasswordPolicyErrors(password);
+  if (passwordErrors.length > 0 || password !== confirmPassword) {
+    response.status(422).json({ error: passwordErrors.join(' ') || 'As senhas não conferem.' });
+    return;
+  }
+  try {
+    const tokenHash = crypto.createHash('sha256').update(String(token || '')).digest('hex');
+    const user = await User.findOne({
+      passwordResetTokenHash: tokenHash,
+      passwordResetExpiresAt: { $gt: new Date() },
+    }).select('+passwordResetTokenHash +passwordResetExpiresAt');
+    if (!user) {
+      response.status(400).json({ error: 'Link de recuperação inválido ou expirado.' });
+      return;
+    }
+    user.passwordHash = await hashPassword(password);
+    user.authVersion = (user.authVersion || 0) + 1;
+    user.passwordResetTokenHash = undefined;
+    user.passwordResetExpiresAt = undefined;
+    await user.save();
+    await AuditLog.create({
+      actorUserId: user._id,
+      action: 'user.password_reset',
+      targetUserId: user._id,
+      ip: request.ip,
+    });
+    response.json({ message: 'Senha redefinida com sucesso.' });
+  } catch (error) {
     next(error);
   }
 });
@@ -315,6 +317,7 @@ router.patch('/me/password', requireAuth, async (request, response, next) => {
       return;
     }
     request.user.passwordHash = await hashPassword(password);
+    request.user.authVersion = (request.user.authVersion || 0) + 1;
     await request.user.save();
     await AuditLog.create({
       actorUserId: request.user._id,
@@ -322,7 +325,7 @@ router.patch('/me/password', requireAuth, async (request, response, next) => {
       targetUserId: request.user._id,
       ip: request.ip,
     });
-    response.json({ message: 'Senha atualizada.' });
+    response.json({ message: 'Senha atualizada.', sessionInvalidated: true });
   } catch (error) {
     next(error);
   }
