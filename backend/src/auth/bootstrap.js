@@ -25,6 +25,10 @@ export async function seedInitialAdmin() {
         `O usuário inicial ${email} já existe sem o papel admin; revisão manual necessária.`,
       );
     }
+    if (!existingAdmin.cpf && process.env.ADMIN_CPF) {
+      existingAdmin.cpf = process.env.ADMIN_CPF.replace(/\D/g, '');
+      await existingAdmin.save();
+    }
     console.log(`Administrador inicial já existe: ${email}`);
     return;
   }
@@ -34,6 +38,7 @@ export async function seedInitialAdmin() {
     email,
     passwordHash: await hashPassword(ADMIN_PASSWORD),
     phone: 'Não informado',
+    cpf: process.env.ADMIN_CPF || '00000000191',
     birthDate: new Date('1970-01-01T00:00:00.000Z'),
     address: 'Não informado',
     emergencyContact: 'Não informado',

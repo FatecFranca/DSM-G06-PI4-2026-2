@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { createServer } from 'node:http';
 import cors from 'cors';
 import express from 'express';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
 import mqtt from 'mqtt';
 import { Server } from 'socket.io';
@@ -10,6 +12,7 @@ import { Telemetry } from './models/Telemetry.js';
 import { seedInitialAdmin } from './auth/bootstrap.js';
 import { authRouter } from './auth/routes.js';
 import { usersRouter } from './auth/users-routes.js';
+import { requireAuth, requirePermission } from './auth/middleware.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -77,7 +80,8 @@ async function seedHarvests() {
   console.log('Colheitas iniciais criadas');
 }
 
-app.use(cors());
+app.use(helmet());
+app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || true }));
 app.use(express.json());
 io.on('connection', (socket) => {
   socket.emit('status:update', getStatus());
@@ -85,15 +89,15 @@ io.on('connection', (socket) => {
 app.get('/health', (_request, response) =>
   response.json({ ok: true, service: 'horta-comunitaria-api' }),
 );
-app.use('/auth', authRouter);
+app.use('/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30 }), authRouter);
 app.use('/users', usersRouter);
-app.get('/status', (_request, response) =>
+app.get('/status', requireAuth, (_request, response) =>
   response.json(getStatus()),
 );
-app.get('/telemetry/history', (_request, response) =>
+app.get('/telemetry/history', requireAuth, (_request, response) =>
   response.json(telemetryHistory.slice(-100).reverse()),
 );
-app.post('/irrigation', (request, response) => {
+app.post('/irrigation', requireAuth, requirePermission('control_irrigation'), (request, response) => {
   const { action, mode = 'manual' } = request.body;
   if (!['on', 'off', 'auto'].includes(action))
     return response
@@ -129,12 +133,12 @@ app.post('/irrigation', (request, response) => {
   }
   response.json({ message: `Irrigação ${action}`, irrigation });
 });
-app.get('/harvest', async (_request, response) => {
+app.get('/harvest', requireAuth, async (_request, response) => {
   if (!isMongoReady()) return response.json(demoHarvests);
   const harvests = await Harvest.find().sort({ harvestDate: 1 }).lean();
   response.json(harvests.map(serializeHarvest));
 });
-app.post('/harvest', async (request, response) => {
+app.post('/harvest', requireAuth, requirePermission('manage_harvests'), async (request, response) => {
   const { crop, harvestDate, quantity = 0 } = request.body;
   const parsedHarvestDate = new Date(harvestDate);
   const parsedQuantity = Number(quantity);
@@ -160,7 +164,7 @@ app.post('/harvest', async (request, response) => {
   const createdHarvest = await Harvest.create(harvest);
   response.status(201).json(serializeHarvest(createdHarvest));
 });
-app.put('/harvest/:id/reserve', async (request, response) => {
+app.put('/harvest/:id/reserve', requireAuth, requirePermission('reserve_harvest'), async (request, response) => {
   if (isMongoReady()) {
     const harvest = await Harvest.findOneAndUpdate(
       { id: request.params.id, available: true },

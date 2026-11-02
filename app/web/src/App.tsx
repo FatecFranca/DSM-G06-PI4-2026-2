@@ -58,6 +58,7 @@ type User = {
   id: string;
   fullName: string;
   email: string;
+  cpf?: string;
   roles: string[];
   status: string;
   phone?: string;
@@ -80,13 +81,29 @@ async function requestApi<T>(
   options?: RequestInit,
   token?: string,
 ): Promise<T> {
+  const storedToken = token || (() => {
+    try {
+      return (JSON.parse(localStorage.getItem('horta-session') || 'null') as AuthSession | null)?.token;
+    } catch {
+      return undefined;
+    }
+  })();
+  const requestOptions = storedToken && !token
+    ? {
+        ...options,
+        headers: {
+          ...options?.headers,
+          Authorization: `Bearer ${storedToken}`,
+        },
+      }
+    : options;
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
+      ...requestOptions?.headers,
     },
-    ...options,
+    ...requestOptions,
   });
   const body = await response.json().catch(() => null);
   if (!response.ok) {
@@ -113,6 +130,7 @@ function formatDate(value: string) {
 function roleLabel(role: string) {
   return {
     resident: 'Morador',
+    volunteer: 'Voluntário',
     collaborator: 'Colaborador',
     admin: 'Administrador',
   }[role] || role;
@@ -155,7 +173,10 @@ function App() {
   const [registrationForm, setRegistrationForm] = useState({
     fullName: '',
     email: '',
+    cpf: '',
+    requestedRole: 'resident',
     password: '',
+    confirmPassword: '',
     phone: '',
     birthDate: '',
     address: '',
@@ -186,6 +207,7 @@ function App() {
   const [profileForm, setProfileForm] = useState({
     fullName: '',
     email: '',
+    cpf: '',
     phone: '',
     birthDate: '',
     address: '',
@@ -302,7 +324,10 @@ function App() {
           setRegistrationForm({
             fullName: '',
             email: '',
+            cpf: '',
+            requestedRole: 'resident',
             password: '',
+            confirmPassword: '',
             phone: '',
             birthDate: '',
             address: '',
@@ -330,6 +355,7 @@ function App() {
     setProfileForm({
       fullName: session.user.fullName,
       email: session.user.email,
+      cpf: session.user.cpf || '',
       phone: session.user.phone || '',
       birthDate: session.user.birthDate?.slice(0, 10) || '',
       address: session.user.address || '',
@@ -364,6 +390,7 @@ function App() {
           body: JSON.stringify({
             fullName: profileForm.fullName,
             email: profileForm.email,
+            cpf: profileForm.cpf,
             phone: profileForm.phone,
             birthDate: profileForm.birthDate,
             address: profileForm.address,
@@ -501,11 +528,20 @@ function App() {
             <>
               <label>Nome completo<input value={registrationForm.fullName} onChange={(event) => setRegistrationForm({ ...registrationForm, fullName: event.target.value })} required /></label>
               <label>E-mail<input type="email" value={registrationForm.email} onChange={(event) => setRegistrationForm({ ...registrationForm, email: event.target.value })} required /></label>
+              <label>CPF<input value={registrationForm.cpf} onChange={(event) => setRegistrationForm({ ...registrationForm, cpf: event.target.value })} required /></label>
+              <label>Tipo de usuário
+                <select value={registrationForm.requestedRole} onChange={(event) => setRegistrationForm({ ...registrationForm, requestedRole: event.target.value })}>
+                  <option value="resident">Morador</option>
+                  <option value="volunteer">Voluntário</option>
+                  <option value="collaborator">Colaborador</option>
+                </select>
+              </label>
               <label>
                 Senha privada
                 <input type="password" minLength={12} value={registrationForm.password} onChange={(event) => setRegistrationForm({ ...registrationForm, password: event.target.value })} autoComplete="new-password" required />
                 <small className="field-help">Mínimo de 12 caracteres. Esta senha será conhecida somente por você.</small>
               </label>
+              <label>Confirmar senha<input type="password" minLength={12} value={registrationForm.confirmPassword} onChange={(event) => setRegistrationForm({ ...registrationForm, confirmPassword: event.target.value })} autoComplete="new-password" required /></label>
               <label>Telefone<input value={registrationForm.phone} onChange={(event) => setRegistrationForm({ ...registrationForm, phone: event.target.value })} required /></label>
               <label>Data de nascimento<input type="date" value={registrationForm.birthDate} onChange={(event) => setRegistrationForm({ ...registrationForm, birthDate: event.target.value })} required /></label>
               <label>Endereço<input value={registrationForm.address} onChange={(event) => setRegistrationForm({ ...registrationForm, address: event.target.value })} required /></label>
@@ -792,6 +828,7 @@ function App() {
               <form className="profile-form" onSubmit={saveProfile}>
                 <label>Nome completo<input value={profileForm.fullName} onChange={(event) => setProfileForm({ ...profileForm, fullName: event.target.value })} required /></label>
                 <label>E-mail<input type="email" value={profileForm.email} onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })} required /></label>
+                <label>CPF<input value={profileForm.cpf} onChange={(event) => setProfileForm({ ...profileForm, cpf: event.target.value })} required /></label>
                 <label>Telefone<input value={profileForm.phone} onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })} required /></label>
                 <label>Data de nascimento<input type="date" value={profileForm.birthDate} onChange={(event) => setProfileForm({ ...profileForm, birthDate: event.target.value })} required /></label>
                 <label>Endereço<input value={profileForm.address} onChange={(event) => setProfileForm({ ...profileForm, address: event.target.value })} required /></label>

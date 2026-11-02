@@ -10,6 +10,7 @@ services:
       ADMIN_NAME: ${ADMIN_NAME:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_CPF: ${ADMIN_CPF:-}
       MQTT_BROKER: mqtt://broker.hivemq.com:1883
     depends_on:
       mongo:
