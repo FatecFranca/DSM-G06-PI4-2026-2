@@ -2,11 +2,13 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import {
   ALL_USER_ROLES,
+  getPermissionsForRoles,
   USER_ROLES,
   USER_STATUSES,
 } from './constants.js';
 import { requireAuth, requireRole } from './middleware.js';
 import { hashPassword, comparePassword } from './password.js';
+import { createAuthToken } from './token.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { User } from '../models/User.js';
 import { getPasswordPolicyErrors } from './password-policy.js';
@@ -226,7 +228,13 @@ router.patch('/:id/roles', adminOnly, async (request, response, next) => {
     user.authVersion = (user.authVersion || 0) + 1;
     await user.save();
     await audit(request, 'user.roles_updated', user._id, { previousRoles, roles });
-    response.json({ user: publicUser(user) });
+    const responseUser = publicUser(user);
+    response.json({
+      user: responseUser,
+      ...(user._id.equals(request.user._id)
+        ? { token: createAuthToken(user), permissions: getPermissionsForRoles(user.roles) }
+        : {}),
+    });
   } catch (error) {
     next(error);
   }

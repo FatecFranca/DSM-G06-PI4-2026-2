@@ -526,10 +526,10 @@ function App() {
     }
   }
 
-  async function loadUserStats() {
-    if (!session?.token || !canManageUsers) return;
+  async function loadUserStats(token = session?.token) {
+    if (!token || !canManageUsers) return;
     try {
-      setUserStats(await requestApi<UserStats>('/users/stats', undefined, session.token));
+      setUserStats(await requestApi<UserStats>('/users/stats', undefined, token));
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Falha ao carregar indicadores.');
     }
@@ -553,12 +553,32 @@ function App() {
   ) {
     if (!session?.token) return;
     try {
-      const result = await requestApi<{ user: User }>(`/users/${id}/${path}`, {
+      const result = await requestApi<{ user: User; token?: string; permissions?: string[] }>(`/users/${id}/${path}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       }, session.token);
       setUsers((current) => current.map((user) => user.id === id ? result.user : user));
-      await loadUserStats();
+      if (id === session.user.id) {
+        const nextSession = {
+          ...session,
+          token: result.token || session.token,
+          user: result.user,
+          permissions: result.permissions || session.permissions,
+        };
+        setSession(nextSession);
+        localStorage.setItem('horta-session', JSON.stringify(nextSession));
+        setProfileForm((current) => ({
+          ...current,
+          fullName: result.user.fullName,
+          email: result.user.email,
+          cpf: result.user.cpf || '',
+          phone: result.user.phone || '',
+          birthDate: result.user.birthDate?.slice(0, 10) || '',
+          address: result.user.address || '',
+          emergencyContact: result.user.emergencyContact || '',
+        }));
+      }
+      await loadUserStats(result.token);
       setUsersError('');
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Falha ao atualizar usuário.');
@@ -595,15 +615,35 @@ function App() {
           emergencyContact: editingUserForm.emergencyContact,
         }),
       }, session.token);
-      const roles = await requestApi<{ user: User }>(`/users/${editingUserId}/roles`, {
+      const roles = await requestApi<{ user: User; token?: string; permissions?: string[] }>(`/users/${editingUserId}/roles`, {
         method: 'PATCH',
         body: JSON.stringify({ roles: editingUserForm.roles }),
       }, session.token);
       setUsers((current) =>
         current.map((user) => user.id === editingUserId ? { ...profile.user, ...roles.user } : user),
       );
+      if (editingUserId === session.user.id) {
+        const nextSession = {
+          ...session,
+          token: roles.token || session.token,
+          user: roles.user,
+          permissions: roles.permissions || session.permissions,
+        };
+        setSession(nextSession);
+        localStorage.setItem('horta-session', JSON.stringify(nextSession));
+        setProfileForm((current) => ({
+          ...current,
+          fullName: roles.user.fullName,
+          email: roles.user.email,
+          cpf: roles.user.cpf || '',
+          phone: roles.user.phone || '',
+          birthDate: roles.user.birthDate?.slice(0, 10) || '',
+          address: roles.user.address || '',
+          emergencyContact: roles.user.emergencyContact || '',
+        }));
+      }
       setEditingUserId(null);
-      await loadUserStats();
+      await loadUserStats(roles.token);
       setUsersError('');
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Falha ao salvar usuário.');
