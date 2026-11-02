@@ -22,6 +22,29 @@ function normalizeEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+}
+
+function isValidCpf(value) {
+  const cpf = typeof value === 'string' ? value.replace(/\D/g, '') : '';
+  if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+  let sum = 0;
+  for (let index = 0; index < 9; index += 1) sum += Number(cpf[index]) * (10 - index);
+  let digit = (sum * 10) % 11;
+  if (digit === 10) digit = 0;
+  if (digit !== Number(cpf[9])) return false;
+  sum = 0;
+  for (let index = 0; index < 10; index += 1) sum += Number(cpf[index]) * (11 - index);
+  digit = (sum * 10) % 11;
+  if (digit === 10) digit = 0;
+  return digit === Number(cpf[10]);
+}
+
+function isValidPhone(value) {
+  return typeof value === 'string' && value.replace(/\D/g, '').length >= 10;
+}
+
 function parseDate(value) {
   if (typeof value !== 'string' || !value.trim()) return null;
   const date = new Date(value);
@@ -87,6 +110,20 @@ router.get('/stats', adminOnly, async (_request, response, next) => {
   }
 });
 
+router.get('/audit', adminOnly, async (request, response, next) => {
+  if (databaseUnavailable(response)) return;
+  try {
+    const limit = Math.min(Math.max(Number(request.query.limit) || 50, 1), 200);
+    const logs = await AuditLog.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    response.json({ logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/:id', adminOnly, async (request, response, next) => {
   if (databaseUnavailable(response)) return;
   try {
@@ -129,6 +166,7 @@ router.patch('/:id/status', adminOnly, async (request, response, next) => {
     }
     const previousStatus = user.status;
     user.status = status;
+    user.authVersion = (user.authVersion || 0) + 1;
     if (status === USER_STATUSES.ACTIVE) {
       user.approvedAt = new Date();
       user.approvedBy = request.user._id;
@@ -185,6 +223,7 @@ router.patch('/:id/roles', adminOnly, async (request, response, next) => {
     }
     const previousRoles = user.roles;
     user.roles = roles;
+    user.authVersion = (user.authVersion || 0) + 1;
     await user.save();
     await audit(request, 'user.roles_updated', user._id, { previousRoles, roles });
     response.json({ user: publicUser(user) });
@@ -203,12 +242,24 @@ router.patch('/:id/profile', adminOnly, async (request, response, next) => {
     }
     const { fullName, email, cpf, phone, birthDate, address, emergencyContact } =
       request.body;
-    if (typeof fullName === 'string' && fullName.trim().length >= 2) user.fullName = fullName.trim();
-    if (typeof email === 'string' && email.trim()) user.email = normalizeEmail(email);
-    if (typeof cpf === 'string' && cpf.trim()) user.cpf = cpf.replace(/\D/g, '');
-    if (typeof phone === 'string' && phone.trim()) user.phone = phone.trim();
-    if (typeof address === 'string' && address.trim()) user.address = address.trim();
-    if (typeof emergencyContact === 'string' && emergencyContact.trim()) {
+    if (fullName !== undefined && (typeof fullName !== 'string' || fullName.trim().length < 2)) {
+      return response.status(422).json({ error: 'Nome completo inválido.' });
+    }
+    if (email !== undefined && !isValidEmail(email)) {
+      return response.status(422).json({ error: 'E-mail inválido.' });
+    }
+    if (cpf !== undefined && !isValidCpf(cpf)) {
+      return response.status(422).json({ error: 'CPF inválido.' });
+    }
+    if (phone !== undefined && !isValidPhone(phone)) {
+      return response.status(422).json({ error: 'Telefone inválido.' });
+    }
+    if (fullName !== undefined) user.fullName = fullName.trim();
+    if (email !== undefined) user.email = normalizeEmail(email);
+    if (cpf !== undefined) user.cpf = cpf.replace(/\D/g, '');
+    if (phone !== undefined) user.phone = phone.trim();
+    if (address !== undefined) user.address = address.trim();
+    if (emergencyContact !== undefined) {
       user.emergencyContact = emergencyContact.trim();
     }
     if (birthDate !== undefined) {
@@ -245,26 +296,6 @@ router.patch('/:id/password', adminOnly, async (request, response, next) => {
       error: passwordErrors.join(' '),
       passwordRules: ['Mínimo de 12 caracteres.'],
     });
-
-    router.delete('/:id', adminOnly, async (request, response, next) => {
-      if (databaseUnavailable(response)) return;
-      try {
-        const user = await User.findById(request.params.id);
-        if (!user) return response.status(404).json({ error: 'Usuário não encontrado.' });
-        if (user._id.equals(request.user._id)) {
-          return response.status(409).json({ error: 'O administrador não pode excluir a própria conta.' });
-        }
-        if (user.roles.includes(USER_ROLES.ADMIN) && user.status === USER_STATUSES.ACTIVE &&
-          (await countActiveAdmins()) <= 1) {
-          return response.status(409).json({ error: 'Não é possível remover o último administrador ativo.' });
-        }
-        await user.deleteOne();
-        await audit(request, 'user.deleted', user._id);
-        return response.status(204).send();
-      } catch (error) {
-        next(error);
-      }
-    });
     return;
   }
   try {
@@ -274,9 +305,33 @@ router.patch('/:id/password', adminOnly, async (request, response, next) => {
       return;
     }
     user.passwordHash = await hashPassword(password);
+    user.authVersion = (user.authVersion || 0) + 1;
     await user.save();
     await audit(request, 'user.password_updated', user._id);
     response.json({ message: 'Senha atualizada.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/:id', adminOnly, async (request, response, next) => {
+  if (databaseUnavailable(response)) return;
+  try {
+    const user = await User.findById(request.params.id);
+    if (!user) return response.status(404).json({ error: 'Usuário não encontrado.' });
+    if (user._id.equals(request.user._id)) {
+      return response.status(409).json({ error: 'O administrador não pode excluir a própria conta.' });
+    }
+    if (
+      user.roles.includes(USER_ROLES.ADMIN) &&
+      user.status === USER_STATUSES.ACTIVE &&
+      (await countActiveAdmins()) <= 1
+    ) {
+      return response.status(409).json({ error: 'Não é possível remover o último administrador ativo.' });
+    }
+    await user.deleteOne();
+    await audit(request, 'user.deleted', user._id);
+    return response.status(204).send();
   } catch (error) {
     next(error);
   }

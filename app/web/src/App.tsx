@@ -35,6 +35,15 @@ type Harvest = {
   reservedBy?: string;
   reservedAt?: string;
 };
+type AuditEntry = {
+  _id: string;
+  actorUserId: string;
+  targetUserId: string;
+  action: string;
+  metadata?: Record<string, unknown>;
+  ip?: string;
+  createdAt: string;
+};
 
 type Telemetry = {
   soilMoisture: number;
@@ -72,9 +81,16 @@ type User = {
     skills?: string[];
     availability?: string;
   };
+  createdAt?: string;
+  updatedAt?: string;
 };
 type AuthSession = { token: string; user: User; permissions: string[] };
 type ApiError = Error & { code?: string };
+type UserStats = {
+  total: number;
+  statuses: Record<string, number>;
+  roles: Record<string, number>;
+};
 
 async function requestApi<T>(
   path: string,
@@ -87,6 +103,7 @@ async function requestApi<T>(
     } catch {
       return undefined;
     }
+
   })();
   const requestOptions = storedToken && !token
     ? {
@@ -149,8 +166,10 @@ const navigationItems = [
   { label: 'Visão geral', Icon: LayoutDashboard },
   { label: 'Irrigação', Icon: Droplets },
   { label: 'Colheitas', Icon: Sprout },
+  { label: 'Minhas reservas', Icon: Sprout, permission: 'view_harvests' },
   { label: 'Histórico', Icon: History },
   { label: 'Usuários', Icon: Users, permission: 'view_users' },
+  { label: 'Auditoria', Icon: History, permission: 'view_users' },
   { label: 'Meu perfil', Icon: Users },
 ];
 
@@ -167,6 +186,10 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [loginPending, setLoginPending] = useState(false);
   const [showRegistration, setShowRegistration] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('token') || '');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState('');
   const [registrationPending, setRegistrationPending] = useState(false);
   const [registrationError, setRegistrationError] = useState('');
   const [registrationMessage, setRegistrationMessage] = useState('');
@@ -186,6 +209,7 @@ function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [history, setHistory] = useState<Telemetry[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
+  const [myReservations, setMyReservations] = useState<Harvest[]>([]);
   const [harvestFilter, setHarvestFilter] = useState<'all' | 'available'>(
     'all',
   );
@@ -204,6 +228,21 @@ function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState('');
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
+  const [userStatusFilter, setUserStatusFilter] = useState('all');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingUserForm, setEditingUserForm] = useState({
+    fullName: '',
+    email: '',
+    cpf: '',
+    phone: '',
+    birthDate: '',
+    address: '',
+    emergencyContact: '',
+    roles: [] as string[],
+  });
   const [profileForm, setProfileForm] = useState({
     fullName: '',
     email: '',
@@ -254,14 +293,16 @@ function App() {
 
   async function loadDashboard() {
     try {
-      const [nextStatus, nextHistory, nextHarvests] = await Promise.all([
+      const [nextStatus, nextHistory, nextHarvests, nextReservations] = await Promise.all([
         requestApi<Status>('/status', undefined, session?.token),
         requestApi<Telemetry[]>('/telemetry/history', undefined, session?.token),
         requestApi<Harvest[]>('/harvest', undefined, session?.token),
+        requestApi<Harvest[]>('/harvest/mine', undefined, session?.token),
       ]);
       setStatus(nextStatus);
       setHistory(nextHistory);
       setHarvests(nextHarvests);
+      setMyReservations(nextReservations);
       setLastSyncedAt(new Date().toISOString());
       setCurrentTime(Date.now());
       setRequestError('');
@@ -306,6 +347,41 @@ function App() {
       } finally {
         setLoginPending(false);
       }
+
+  }
+
+  async function requestPasswordRecovery(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginError('');
+    try {
+      const result = await requestApi<{ message: string }>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: loginEmail }),
+      });
+      setLoginError(result.message);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Falha ao solicitar recuperação.');
+    }
+  }
+
+  async function resetPasswordRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginError('');
+    try {
+      const result = await requestApi<{ message: string }>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          token: resetToken,
+          password: resetPassword,
+          confirmPassword: resetPasswordConfirmation,
+        }),
+      });
+      setLoginError(result.message);
+      setResetPassword('');
+      setResetPasswordConfirmation('');
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Falha ao redefinir senha.');
+    }
   }
 
   async function register(event: FormEvent<HTMLFormElement>) {
@@ -348,6 +424,7 @@ function App() {
       setStatus(null);
       setHistory([]);
       setHarvests([]);
+      setMyReservations([]);
   }
 
   function openProfile() {
@@ -403,13 +480,15 @@ function App() {
       setSession(nextSession);
       localStorage.setItem('horta-session', JSON.stringify(nextSession));
       if (profileForm.password) {
-        await requestApi('/auth/me/password', {
+        await requestApi<{ sessionInvalidated: boolean }>('/auth/me/password', {
           method: 'PATCH',
           body: JSON.stringify({
             currentPassword: profileForm.currentPassword,
             password: profileForm.password,
           }),
         }, session.token);
+        logout();
+        return;
       }
       setProfileForm((current) => ({ ...current, currentPassword: '', password: '' }));
       setProfileMessageType('success');
@@ -426,39 +505,124 @@ function App() {
   }
 
   async function loadUsers() {
-      if (!session?.token || !canManageUsers) return;
-      setUsersLoading(true);
-      setUsersError('');
-      try {
-        const result = await requestApi<{ users: User[] }>(
-          '/users',
-          undefined,
-          session.token,
-        );
-        setUsers(result.users);
-      } catch (error) {
-        setUsersError(error instanceof Error ? error.message : 'Falha ao carregar usuários.');
-      } finally {
-        setUsersLoading(false);
-      }
+    if (!session?.token || !canManageUsers) return;
+    setUsersLoading(true);
+    setUsersError('');
+    try {
+      const params = new URLSearchParams();
+      if (userStatusFilter !== 'all') params.set('status', userStatusFilter);
+      if (userRoleFilter !== 'all') params.set('role', userRoleFilter);
+      const query = params.toString();
+      const result = await requestApi<{ users: User[] }>(
+        `/users${query ? `?${query}` : ''}`,
+        undefined,
+        session.token,
+      );
+      setUsers(result.users);
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Falha ao carregar usuários.');
+    } finally {
+      setUsersLoading(false);
+    }
+  }
+
+  async function loadUserStats() {
+    if (!session?.token || !canManageUsers) return;
+    try {
+      setUserStats(await requestApi<UserStats>('/users/stats', undefined, session.token));
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Falha ao carregar indicadores.');
+    }
+
+  }
+
+  async function loadAuditLogs() {
+    if (!session?.token || !canManageUsers) return;
+    try {
+      const result = await requestApi<{ logs: AuditEntry[] }>('/users/audit?limit=100', undefined, session.token);
+      setAuditLogs(result.logs);
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Falha ao carregar auditoria.');
+    }
   }
 
   async function updateUser(
-      id: string,
-      path: string,
-      body: Record<string, unknown>,
-    ) {
-      if (!session?.token) return;
-      try {
-        const result = await requestApi<{ user: User }>(`/users/${id}/${path}`, {
-          method: 'PATCH',
-          body: JSON.stringify(body),
-        }, session.token);
-        setUsers((current) => current.map((user) => user.id === id ? result.user : user));
-      } catch (error) {
-        setUsersError(error instanceof Error ? error.message : 'Falha ao atualizar usuário.');
-      }
+    id: string,
+    path: string,
+    body: Record<string, unknown>,
+  ) {
+    if (!session?.token) return;
+    try {
+      const result = await requestApi<{ user: User }>(`/users/${id}/${path}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }, session.token);
+      setUsers((current) => current.map((user) => user.id === id ? result.user : user));
+      await loadUserStats();
+      setUsersError('');
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Falha ao atualizar usuário.');
     }
+  }
+
+  function startEditingUser(user: User) {
+    setEditingUserId(user.id);
+    setEditingUserForm({
+      fullName: user.fullName,
+      email: user.email,
+      cpf: user.cpf || '',
+      phone: user.phone || '',
+      birthDate: user.birthDate?.slice(0, 10) || '',
+      address: user.address || '',
+      emergencyContact: user.emergencyContact || '',
+      roles: [...user.roles],
+    });
+  }
+
+  async function saveAdminUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session?.token || !editingUserId) return;
+    try {
+      const profile = await requestApi<{ user: User }>(`/users/${editingUserId}/profile`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fullName: editingUserForm.fullName,
+          email: editingUserForm.email,
+          cpf: editingUserForm.cpf,
+          phone: editingUserForm.phone,
+          birthDate: editingUserForm.birthDate,
+          address: editingUserForm.address,
+          emergencyContact: editingUserForm.emergencyContact,
+        }),
+      }, session.token);
+      const roles = await requestApi<{ user: User }>(`/users/${editingUserId}/roles`, {
+        method: 'PATCH',
+        body: JSON.stringify({ roles: editingUserForm.roles }),
+      }, session.token);
+      setUsers((current) =>
+        current.map((user) => user.id === editingUserId ? { ...profile.user, ...roles.user } : user),
+      );
+      setEditingUserId(null);
+      await loadUserStats();
+      setUsersError('');
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Falha ao salvar usuário.');
+    }
+  }
+
+  async function deleteUser(user: User) {
+    if (!session?.token || !window.confirm(`Excluir o usuário ${user.fullName}? Esta ação não pode ser desfeita.`)) {
+      return;
+    }
+    try {
+      await requestApi<void>(`/users/${user.id}`, { method: 'DELETE' }, session.token);
+      setUsers((current) => current.filter((item) => item.id !== user.id));
+      await loadUserStats();
+      setUsersError('');
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Falha ao excluir usuário.');
+    }
+  }
 
   useEffect(() => {
     if (!session) return;
@@ -503,25 +667,31 @@ function App() {
       setActiveSection('Visão geral');
       return;
     }
-    if (activeSection === 'Usuários') void loadUsers();
-  }, [activeSection, canManageUsers, session]);
+    if (activeSection === 'Usuários') {
+      void loadUsers();
+      void loadUserStats();
+    }
+    if (activeSection === 'Auditoria') void loadAuditLogs();
+  }, [activeSection, canManageUsers, session, userStatusFilter, userRoleFilter]);
 
   if (!session) {
     return (
       <div className="auth-shell">
-        <form className="auth-card" onSubmit={showRegistration ? register : login}>
+        <form className="auth-card" onSubmit={showForgotPassword ? (resetToken ? resetPasswordRequest : requestPasswordRecovery) : showRegistration ? register : login}>
           <div className="brand">
             <span className="brand-mark"><Plus size={18} strokeWidth={2.2} /></span>
             <span>Horta<br /><strong>Comunitária</strong></span>
           </div>
           <p className="eyebrow">ACESSO AO SISTEMA</p>
-          <h1>{showRegistration ? 'Criar cadastro' : 'Entrar'}</h1>
+          <h1>{showRegistration ? 'Criar cadastro' : showForgotPassword ? resetToken ? 'Redefinir senha' : 'Recuperar senha' : 'Entrar'}</h1>
           <p className="subheading">
             {showRegistration
               ? 'Informe seus dados e crie sua senha privada. O acesso será liberado após a aprovação do administrador.'
+              : showForgotPassword
+              ? 'Solicite um link de recuperação. O envio por e-mail é opcional neste ambiente.'
               : 'Use uma conta aprovada para acessar a horta.'}
           </p>
-          {!showRegistration && loginError && <div className="api-error" role="alert">{loginError}</div>}
+          {!showRegistration && loginError && <div className="profile-message success" role="status">{loginError}</div>}
           {showRegistration && registrationError && <div className="api-error" role="alert">{registrationError}</div>}
           {showRegistration && registrationMessage && <div className="profile-message success" role="status">{registrationMessage}</div>}
           {showRegistration ? (
@@ -547,6 +717,15 @@ function App() {
               <label>Endereço<input value={registrationForm.address} onChange={(event) => setRegistrationForm({ ...registrationForm, address: event.target.value })} required /></label>
               <label>Contato de emergência<input value={registrationForm.emergencyContact} onChange={(event) => setRegistrationForm({ ...registrationForm, emergencyContact: event.target.value })} required /></label>
             </>
+          ) : showForgotPassword ? (
+            resetToken ? (
+              <>
+                <label>Nova senha<input type="password" minLength={12} value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} required /></label>
+                <label>Confirmar nova senha<input type="password" minLength={12} value={resetPasswordConfirmation} onChange={(event) => setResetPasswordConfirmation(event.target.value)} required /></label>
+              </>
+            ) : (
+              <label>E-mail<input type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required /></label>
+            )
           ) : (
             <>
               <label>E-mail<input type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required /></label>
@@ -556,20 +735,33 @@ function App() {
           <button className="primary-button" type="submit" disabled={loginPending || registrationPending}>
             {showRegistration
               ? registrationPending ? 'Enviando cadastro...' : 'Enviar cadastro'
+              : showForgotPassword
+              ? resetToken ? 'Redefinir senha' : 'Enviar link de recuperação'
               : loginPending ? 'Entrando...' : 'Entrar'}
           </button>
-          <button
+          {!showForgotPassword && <button
             className="text-button auth-switch"
             type="button"
             onClick={() => {
               setShowRegistration(!showRegistration);
+              setShowForgotPassword(false);
               setLoginError('');
               setRegistrationError('');
               setRegistrationMessage('');
             }}
           >
             {showRegistration ? 'Já tenho uma conta: entrar' : 'Ainda não tenho conta: criar cadastro'}
-          </button>
+          </button>}
+          {!showRegistration && !showForgotPassword && (
+            <button className="text-button auth-switch" type="button" onClick={() => { setShowForgotPassword(true); setLoginError(''); }}>
+              Esqueci minha senha
+            </button>
+          )}
+          {showForgotPassword && (
+            <button className="text-button auth-switch" type="button" onClick={() => { setShowForgotPassword(false); setLoginError(''); }}>
+              Voltar para entrar
+            </button>
+          )}
         </form>
       </div>
     );
@@ -631,12 +823,12 @@ function App() {
         `/harvest/${harvest.id}/reserve`,
         {
           method: 'PUT',
-          body: JSON.stringify({ reservedBy: session?.user.fullName || 'Morador' }),
         },
       );
       setHarvests((current) =>
         current.map((item) => (item.id === reserved.id ? reserved : item)),
       );
+      setMyReservations((current) => [...current, reserved]);
       setRequestError('');
     } catch (error) {
       setRequestError(
@@ -644,6 +836,24 @@ function App() {
       );
     } finally {
       setReservingId(null);
+    }
+  }
+
+  async function cancelReservation(harvest: Harvest) {
+    if (!harvest.id) return;
+    try {
+      await requestApi<Harvest>(`/harvest/${harvest.id}/cancel-reservation`, {
+        method: 'PUT',
+      });
+      setMyReservations((current) => current.filter((item) => item.id !== harvest.id));
+      setHarvests((current) =>
+        current.map((item) =>
+          item.id === harvest.id ? { ...item, available: true, reservedBy: undefined, reservedAt: undefined } : item,
+        ),
+      );
+      setRequestError('');
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Falha ao cancelar reserva.');
     }
   }
 
@@ -871,24 +1081,122 @@ function App() {
                 <button className="primary-button" type="submit">Salvar alterações</button>
               </form>
             </section>
+          ) : activeSection === 'Minhas reservas' ? (
+            <section className="panel users-panel">
+              <div className="panel-heading">
+                <div><h2>Minhas reservas</h2><p>Acompanhe e cancele suas reservas de colheitas.</p></div>
+                <button className="text-button" onClick={() => void loadDashboard()}>Atualizar</button>
+              </div>
+              <div className="harvest-list">
+                {myReservations.map((harvest) => (
+                  <div className="harvest-row" key={harvest.id}>
+                    <div className="crop-avatar">{harvest.crop.charAt(0)}</div>
+                    <div className="crop-info"><strong>{harvest.crop}</strong><span>{formatDate(harvest.harvestDate)} · {harvest.quantity || 'A definir'}</span></div>
+                    <span className="status-pill upcoming">Reservada</span>
+                    <button className="text-button" onClick={() => void cancelReservation(harvest)}>Cancelar reserva</button>
+                  </div>
+                ))}
+                {!myReservations.length && <div className="empty-state">Você não possui reservas ativas.</div>}
+              </div>
+            </section>
+          ) : activeSection === 'Auditoria' && canManageUsers ? (
+            <section className="panel users-panel">
+              <div className="panel-heading">
+                <div><h2>Auditoria</h2><p>Registro das ações administrativas e operacionais críticas.</p></div>
+                <button className="text-button" onClick={() => void loadAuditLogs()}>Atualizar</button>
+              </div>
+              {usersError && <div className="api-error" role="alert">{usersError}</div>}
+              <div className="audit-list">
+                {auditLogs.map((entry) => (
+                  <div className="audit-row" key={entry._id}>
+                    <div><strong>{entry.action}</strong><span>{formatDate(entry.createdAt)}</span></div>
+                    <small>Responsável: {entry.actorUserId}</small>
+                    <small>Alvo: {entry.targetUserId}</small>
+                  </div>
+                ))}
+                {!auditLogs.length && <div className="loading-state">Nenhum registro de auditoria encontrado.</div>}
+              </div>
+            </section>
           ) : activeSection === 'Usuários' && canManageUsers ? (
             <section className="panel users-panel">
-              <div className="panel-heading"><div><h2>Usuários cadastrados</h2><p>Dados pessoais permanecem restritos à administração.</p></div><button className="text-button" onClick={() => void loadUsers()}>Atualizar</button></div>
+              <div className="panel-heading">
+                <div>
+                  <h2>Usuários cadastrados</h2>
+                  <p>Dados pessoais permanecem restritos à administração.</p>
+                </div>
+                <button className="text-button" onClick={() => { void loadUsers(); void loadUserStats(); }}>
+                  Atualizar
+                </button>
+              </div>
+              {userStats && (
+                <div className="user-stats" aria-label="Indicadores de usuários">
+                  <div><strong>{userStats.total}</strong><span>Total</span></div>
+                  <div><strong>{userStats.statuses.pending || 0}</strong><span>Pendentes</span></div>
+                  <div><strong>{userStats.statuses.active || 0}</strong><span>Ativos</span></div>
+                  <div><strong>{userStats.statuses.suspended || 0}</strong><span>Suspensos</span></div>
+                  <div><strong>{userStats.roles.admin || 0}</strong><span>Administradores</span></div>
+                </div>
+              )}
+              <div className="user-filters">
+                <label>Status
+                  <select value={userStatusFilter} onChange={(event) => setUserStatusFilter(event.target.value)}>
+                    <option value="all">Todos</option>
+                    <option value="pending">Pendentes</option>
+                    <option value="active">Ativos</option>
+                    <option value="rejected">Rejeitados</option>
+                    <option value="suspended">Suspensos</option>
+                  </select>
+                </label>
+                <label>Perfil
+                  <select value={userRoleFilter} onChange={(event) => setUserRoleFilter(event.target.value)}>
+                    <option value="all">Todos</option>
+                    <option value="resident">Morador</option>
+                    <option value="volunteer">Voluntário</option>
+                    <option value="collaborator">Colaborador</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                </label>
+              </div>
               {usersError && <div className="api-error" role="alert">{usersError}</div>}
               {usersLoading ? <div className="loading-state">Carregando usuários...</div> : (
                 <div className="users-list">
                   {users.map((user) => (
                     <div className="user-row" key={user.id}>
-                      <div><strong>{user.fullName}</strong><span>{user.email}</span></div>
+                      {editingUserId === user.id ? (
+                        <form className="admin-user-form" onSubmit={saveAdminUser}>
+                          <label>Nome completo<input value={editingUserForm.fullName} onChange={(event) => setEditingUserForm({ ...editingUserForm, fullName: event.target.value })} required /></label>
+                          <label>E-mail<input type="email" value={editingUserForm.email} onChange={(event) => setEditingUserForm({ ...editingUserForm, email: event.target.value })} required /></label>
+                          <label>CPF<input value={editingUserForm.cpf} onChange={(event) => setEditingUserForm({ ...editingUserForm, cpf: event.target.value })} required /></label>
+                          <label>Telefone<input value={editingUserForm.phone} onChange={(event) => setEditingUserForm({ ...editingUserForm, phone: event.target.value })} required /></label>
+                          <label>Nascimento<input type="date" value={editingUserForm.birthDate} onChange={(event) => setEditingUserForm({ ...editingUserForm, birthDate: event.target.value })} required /></label>
+                          <label>Endereço<input value={editingUserForm.address} onChange={(event) => setEditingUserForm({ ...editingUserForm, address: event.target.value })} required /></label>
+                          <label>Contato de emergência<input value={editingUserForm.emergencyContact} onChange={(event) => setEditingUserForm({ ...editingUserForm, emergencyContact: event.target.value })} required /></label>
+                          <fieldset>
+                            <legend>Papéis</legend>
+                            {['resident', 'volunteer', 'collaborator', 'admin'].map((role) => (
+                              <label key={role}><input type="checkbox" checked={editingUserForm.roles.includes(role)} disabled={role === 'admin' && user.id === session.user.id} onChange={(event) => setEditingUserForm((current) => ({ ...current, roles: event.target.checked ? [...current.roles, role] : current.roles.filter((item) => item !== role) }))} />{roleLabel(role)}</label>
+                            ))}
+                          </fieldset>
+                          <div className="user-actions"><button className="reserve-button" type="submit">Salvar</button><button className="text-button" type="button" onClick={() => setEditingUserId(null)}>Cancelar</button></div>
+                        </form>
+                      ) : (
+                        <>
+                      <div><strong>{user.fullName}</strong><span>{user.email}</span><small>{user.phone} · Cadastro em {user.createdAt ? formatDate(user.createdAt) : 'data indisponível'}</small></div>
                       <div className="user-badges">{user.roles.map((role) => <span className={`role-badge role-${role}`} key={role}>{roleLabel(role)}</span>)}<span className={`status-pill ${user.status === 'active' ? 'healthy' : 'attention'}`}>{userStatusLabel(user.status)}</span></div>
                       <div className="user-actions">
                         {user.status === 'pending' && <button className="reserve-button" onClick={() => void updateUser(user.id, 'status', { status: 'active' })}>Aprovar</button>}
+                        {user.status === 'pending' && <button className="text-button" onClick={() => void updateUser(user.id, 'status', { status: 'rejected' })}>Rejeitar</button>}
+                        {user.status === 'rejected' && <button className="reserve-button" onClick={() => void updateUser(user.id, 'status', { status: 'active' })}>Aprovar</button>}
                         {user.status === 'active' && user.id !== session.user.id && <button className="text-button" onClick={() => void updateUser(user.id, 'status', { status: 'suspended' })}>Suspender</button>}
                         {user.status === 'suspended' && <button className="reserve-button" onClick={() => void updateUser(user.id, 'status', { status: 'active' })}>Reativar</button>}
-                        {!user.roles.includes('collaborator') && <button className="text-button" onClick={() => void updateUser(user.id, 'roles', { roles: [...user.roles, 'collaborator'] })}>Adicionar colaborador</button>}
+                        <button className="text-button" onClick={() => startEditingUser(user)}>Editar</button>
+                        {user.id !== session.user.id && <button className="text-button" onClick={() => void deleteUser(user)}>Excluir</button>}
                       </div>
+                        </>
+                      )}
                     </div>
                   ))}
+                  {!users.length && !usersLoading && <div className="loading-state">Nenhum usuário encontrado com os filtros atuais.</div>}
                 </div>
               )}
             </section>

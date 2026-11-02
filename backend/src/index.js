@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import mqtt from 'mqtt';
 import { Server } from 'socket.io';
 import { Harvest } from './models/Harvest.js';
+import { AuditLog } from './models/AuditLog.js';
 import { Telemetry } from './models/Telemetry.js';
 import { seedInitialAdmin } from './auth/bootstrap.js';
 import { authRouter } from './auth/routes.js';
@@ -63,11 +64,13 @@ function emitStatus() {
 
 function serializeHarvest(harvest) {
   const item = harvest.toObject ? harvest.toObject() : harvest;
+  const reservedBy = item.reservedByUserId?._id || item.reservedByUserId || item.reservedBy;
   return {
     ...item,
     id: item.id || item._id?.toString(),
     _id: undefined,
     harvestDate: new Date(item.harvestDate).toISOString(),
+    reservedBy: reservedBy?.toString(),
     reservedAt: item.reservedAt
       ? new Date(item.reservedAt).toISOString()
       : undefined,
@@ -97,7 +100,7 @@ app.get('/status', requireAuth, (_request, response) =>
 app.get('/telemetry/history', requireAuth, (_request, response) =>
   response.json(telemetryHistory.slice(-100).reverse()),
 );
-app.post('/irrigation', requireAuth, requirePermission('control_irrigation'), (request, response) => {
+app.post('/irrigation', requireAuth, requirePermission('control_irrigation'), async (request, response) => {
   const { action, mode = 'manual' } = request.body;
   if (!['on', 'off', 'auto'].includes(action))
     return response
@@ -112,6 +115,15 @@ app.post('/irrigation', requireAuth, requirePermission('control_irrigation'), (r
         updatedAt: new Date().toISOString(),
       };
   emitStatus();
+  if (isMongoReady()) {
+    await AuditLog.create({
+      actorUserId: request.user._id,
+      action: 'irrigation.commanded',
+      targetUserId: request.user._id,
+      metadata: { action, mode },
+      ip: request.ip,
+    });
+  }
   const client = app.locals.mqtt;
   if (client) {
     const topic = process.env.MQTT_IRRIGATION_TOPIC || 'horta/irrigation';
@@ -138,6 +150,19 @@ app.get('/harvest', requireAuth, async (_request, response) => {
   const harvests = await Harvest.find().sort({ harvestDate: 1 }).lean();
   response.json(harvests.map(serializeHarvest));
 });
+app.get('/harvest/mine', requireAuth, requirePermission('view_harvests'), async (request, response) => {
+  if (!isMongoReady()) {
+    return response.json(
+      demoHarvests
+        .filter((harvest) => harvest.reservedByUserId?.toString() === request.user._id.toString())
+        .map(serializeHarvest),
+    );
+  }
+  const harvests = await Harvest.find({ reservedBy: request.user._id, available: false })
+    .sort({ reservedAt: -1 })
+    .lean();
+  response.json(harvests.map(serializeHarvest));
+});
 app.post('/harvest', requireAuth, requirePermission('manage_harvests'), async (request, response) => {
   const { crop, harvestDate, quantity = 0 } = request.body;
   const parsedHarvestDate = new Date(harvestDate);
@@ -162,6 +187,13 @@ app.post('/harvest', requireAuth, requirePermission('manage_harvests'), async (r
     return response.status(201).json(harvest);
   }
   const createdHarvest = await Harvest.create(harvest);
+  await AuditLog.create({
+    actorUserId: request.user._id,
+    action: 'harvest.created',
+    targetUserId: request.user._id,
+    metadata: { harvestId: createdHarvest.id },
+    ip: request.ip,
+  });
   response.status(201).json(serializeHarvest(createdHarvest));
 });
 app.put('/harvest/:id/reserve', requireAuth, requirePermission('reserve_harvest'), async (request, response) => {
@@ -171,13 +203,23 @@ app.put('/harvest/:id/reserve', requireAuth, requirePermission('reserve_harvest'
       {
         $set: {
           available: false,
-          reservedBy: request.body.reservedBy || 'Morador',
+          reservedByUserId: request.user._id,
           reservedAt: new Date(),
         },
+        $unset: { reservedBy: 1 },
       },
       { new: true },
     );
-    if (harvest) return response.json(serializeHarvest(harvest));
+    if (harvest) {
+      await AuditLog.create({
+        actorUserId: request.user._id,
+        action: 'harvest.reserved',
+        targetUserId: request.user._id,
+        metadata: { harvestId: harvest.id },
+        ip: request.ip,
+      });
+      return response.json(serializeHarvest(harvest));
+    }
     const existingHarvest = await Harvest.exists({ id: request.params.id });
     if (!existingHarvest)
       return response.status(404).json({ error: 'Colheita não encontrada.' });
@@ -190,9 +232,41 @@ app.put('/harvest/:id/reserve', requireAuth, requirePermission('reserve_harvest'
   if (!harvest.available)
     return response.status(409).json({ error: 'Colheita já reservada.' });
   harvest.available = false;
-  harvest.reservedBy = request.body.reservedBy || 'Morador';
+  harvest.reservedByUserId = request.user._id.toString();
   harvest.reservedAt = new Date().toISOString();
   response.json(harvest);
+});
+app.put('/harvest/:id/cancel-reservation', requireAuth, requirePermission('reserve_harvest'), async (request, response) => {
+  if (isMongoReady()) {
+    const harvest = await Harvest.findOneAndUpdate(
+      { id: request.params.id, reservedByUserId: request.user._id, available: false },
+      { $set: { available: true }, $unset: { reservedBy: 1, reservedAt: 1 } },
+      { new: true },
+    );
+    if (!harvest) {
+      return response.status(404).json({ error: 'Reserva não encontrada.' });
+    }
+    await AuditLog.create({
+      actorUserId: request.user._id,
+      action: 'harvest.reservation_cancelled',
+      targetUserId: request.user._id,
+      metadata: { harvestId: harvest.id },
+      ip: request.ip,
+    });
+    return response.json(serializeHarvest(harvest));
+  }
+
+  const harvest = demoHarvests.find(
+    (item) =>
+      item.id === request.params.id &&
+      item.reservedByUserId?.toString() === request.user._id.toString(),
+  );
+  if (!harvest) return response.status(404).json({ error: 'Reserva não encontrada.' });
+  harvest.available = true;
+  delete harvest.reservedBy;
+  delete harvest.reservedByUserId;
+  delete harvest.reservedAt;
+  response.json(serializeHarvest(harvest));
 });
 
 async function connectIntegrations() {

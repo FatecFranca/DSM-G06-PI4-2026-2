@@ -343,6 +343,7 @@ Rotas administrativas de usuários exigem um token de administrador:
 ```text
 GET   /users
 GET   /users/stats
+GET   /users/audit
 GET   /users/:id
 PATCH /users/:id/status
 PATCH /users/:id/roles
@@ -353,13 +354,21 @@ PATCH /auth/me/profile
 PATCH /auth/me/password
 ```
 
+As reservas de colheitas são vinculadas ao usuário autenticado:
+
+```text
+GET /harvest/mine
+PUT /harvest/:id/cancel-reservation
+```
+
 Senhas com menos de 12 caracteres são rejeitadas, inclusive em ambiente de
 teste. O CPF e o telefone também são validados. A recuperação de senha usa
-tokens de uso único com expiração de uma hora; em desenvolvimento o link é
-impresso no log do backend e, em produção, deve ser conectado ao provedor de
-e-mail da implantação. As variáveis `ADMIN_*` servem somente para criar o
-primeiro admin; a conta deve ser gerenciada pelas rotas autenticadas depois do
-bootstrap.
+tokens de uso único com expiração de uma hora. O SMTP é opcional: sem as
+variáveis `SMTP_*`, em desenvolvimento o link é impresso no log do backend; em
+produção a solicitação permanece segura, mas o link não é enviado. Com SMTP
+configurado, o backend envia o link sem alterar o fluxo de autenticação. As
+variáveis `ADMIN_*` servem somente para criar o primeiro admin; a conta deve
+ser gerenciada pelas rotas autenticadas depois do bootstrap.
 
 O administrador pode alterar o próprio nome, e-mail, telefone, data de
 nascimento, endereço e contato de emergência com `PATCH /auth/me/profile`.
