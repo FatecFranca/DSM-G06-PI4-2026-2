@@ -12,6 +12,7 @@
 body {
   margin: 0;
   min-width: 320px;
+  font-size: 15px;
 }
 button,
 input {
@@ -19,4 +20,11 @@ input {
 }
 button {
   cursor: pointer;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(111, 159, 120, 0.35);
+  outline-offset: 2px;
 }

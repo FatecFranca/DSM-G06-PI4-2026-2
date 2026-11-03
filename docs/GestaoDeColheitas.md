@@ -91,6 +91,19 @@ CANCELLED
 
 ## Descrição dos Estados
 
+Os estados persistidos atualmente são `planned`, `growing`, `ready`, `available`,
+`reserved`, `delivered` e `cancelled`. A transição operacional é controlada por
+administradores e colaboradores com `manage_harvests`. `reserved` representa
+estoque reservado; a entrega individual é controlada pela entidade `Reservation`.
+
+## Regras de datas
+
+- A data do plantio representa a data real ou planejada do início do cultivo.
+- O plantio pode estar no passado, no dia atual ou no futuro.
+- A data prevista da colheita pode estar no passado para registrar histórico ou no futuro para planejar a produção.
+- A única combinação inválida é o plantio acontecer depois da colheita prevista.
+- Para cultivos planejados, recomenda-se usar `PLANNED` quando o plantio ainda não começou e `GROWING` quando o cultivo já estiver em andamento.
+
 ### PLANNED
 
 Plantio planejado.
@@ -151,25 +164,59 @@ Motivos possíveis:
 
 ## Harvest
 
+Modelo persistido atualmente no MongoDB:
+
 ```json
 {
   "_id": "...",
-  "cropName": "Alface Crespa",
-  "cropCategory": "Folhosa",
-  "status": "AVAILABLE",
-  "plantingDate": "2026-10-01",
-  "expectedHarvestDate": "2026-11-15",
-  "actualHarvestDate": null,
+  "id": "harvest-...",
+  "crop": "Alface Crespa",
+  "category": "leafy",
+  "status": "available",
+  "plantingDate": "2026-10-01T08:00:00.000Z",
+  "harvestDate": "2026-11-15T08:00:00.000Z",
   "quantity": 30,
-  "availableQuantity": 30,
-  "reservedQuantity": 0,
+  "availableQuantity": 20,
+  "reservedQuantity": 10,
+  "deliveredQuantity": 0,
   "unit": "unidade",
   "notes": "Cultivo orgânico",
-  "createdBy": "...",
-  "createdAt": "...",
-  "updatedAt": "..."
+  "available": true,
+  "createdBy": "..."
 }
 ```
+
+Campos legados de reserva podem existir para compatibilidade, mas novas reservas
+usam a coleção `reservations` e o modelo `Reservation`.
+
+## Reservation
+
+```json
+{
+  "_id": "...",
+  "harvestId": "...",
+  "harvestCode": "harvest-...",
+  "userId": "...",
+  "quantity": 2,
+  "status": "active",
+  "reservedAt": "...",
+  "cancelledAt": null,
+  "deliveredAt": null
+}
+```
+
+Status persistidos de reserva:
+
+```text
+active
+cancelled
+expired
+delivered
+```
+
+O MongoDB mantém histórico de reservas canceladas e entregues. A regra de
+integridade `one_active_reservation_per_user` impede mais de uma reserva ativa
+do mesmo usuário para a mesma colheita.
 
 ---
 
@@ -368,7 +415,7 @@ Recebe oportunidade de reserva
 
 # Calendário de Colheitas
 
-Visualização mensal.
+Visualização mensal implementada no painel web e consulta resumida no mobile.
 
 Exemplo:
 
@@ -452,7 +499,7 @@ Perdas
 
 # Atualizações em Tempo Real
 
-O sistema deverá utilizar Socket.IO para manter todos os clientes sincronizados.
+O sistema utiliza Socket.IO para manter todos os clientes sincronizados.
 
 ---
 
@@ -528,6 +575,9 @@ Entrega concluída.
 
 ## Eventos de Lista de Espera
 
+Os eventos de lista de espera abaixo permanecem planejados e ainda não são
+emitidos pelo backend.
+
 ### waitingList:newPosition
 
 Usuário entrou na fila.
@@ -566,7 +616,7 @@ Consultar Histórico
 
 ## Socket.IO
 
-Utilizado para:
+Utilizado atualmente para:
 
 ```text
 Novas Colheitas
@@ -575,10 +625,12 @@ Atualização de Reservas
 
 Atualização de Estoque
 
-Notificações
-
 Telemetria
 ```
+
+O mobile atualiza a tela de colheitas ao receber eventos de criação, atualização,
+mudança de status e alterações de reserva. Push notifications ainda não estão
+implementadas.
 
 ---
 
@@ -669,7 +721,7 @@ Gerenciar Reservas
 
 Confirmar Entregas
 
-Visualizar Relatórios
+Visualizar o dashboard operacional
 ```
 
 ---
@@ -685,7 +737,7 @@ Atualizar Status
 
 Registrar Entregas
 
-Visualizar Relatórios
+Consultar o calendário operacional
 ```
 
 ---
@@ -699,7 +751,7 @@ Visualizar Produção
 
 Consultar Colheitas
 
-Consultar Relatórios Básicos
+Consultar disponibilidade conforme as permissões atribuídas
 ```
 
 ---
@@ -725,15 +777,21 @@ Consultar Histórico
 ## Colheitas
 
 ```text
-GET    /harvests
+GET    /harvest
 
-GET    /harvests/:id
+GET    /harvest/:id
 
-POST   /harvests
+GET    /harvest/mine
 
-PUT    /harvests/:id
+GET    /harvest/calendar?from=<ISO>&to=<ISO>
 
-DELETE /harvests/:id
+POST   /harvest
+
+PATCH  /harvest/:id
+
+PATCH  /harvest/:id/status
+
+DELETE /harvest/:id
 ```
 
 ---
@@ -741,30 +799,131 @@ DELETE /harvests/:id
 ## Reservas
 
 ```text
-POST   /reservations
-
 GET    /reservations
 
-GET    /reservations/my
+PATCH  /reservations/:id/status
 
-PUT    /reservations/:id/cancel
+PUT    /harvest/:id/reserve
 
-PUT    /reservations/:id/deliver
+PUT    /harvest/:id/cancel-reservation
 ```
+
+`GET /reservations` retorna reservas ativas por padrão. `status=history` retorna
+canceladas, entregues e expiradas; `status=all` retorna todo o histórico para a
+interface administrativa.
 
 ---
 
 ## Dashboard
 
 ```text
-GET /harvests/dashboard
+GET /harvest/dashboard
 
-GET /harvests/statistics
+GET /telemetry/history
 
-GET /harvests/calendar
-
-GET /harvests/reports
+GET /status
 ```
+
+---
+
+# Implementação atual
+
+O backend mantém compatibilidade com as rotas legadas `/harvest` e expõe o fluxo integrado usado pelo web e pelo mobile:
+
+```text
+GET    /harvest
+GET    /harvest/:id
+GET    /harvest/mine
+POST   /harvest
+PATCH  /harvest/:id
+PATCH  /harvest/:id/status
+DELETE /harvest/:id
+PUT    /harvest/:id/reserve
+PUT    /harvest/:id/cancel-reservation
+GET    /harvest/dashboard
+GET    /reservations
+PATCH  /reservations/:id/status
+GET    /harvest/calendar?from=<ISO>&to=<ISO>
+```
+
+As reservas persistentes usam a entidade `Reservation`, vinculada ao usuário e à colheita. A atualização da disponibilidade é atômica no MongoDB, evitando reservar quantidade além do estoque em requisições concorrentes. As mudanças de colheita e reserva são publicadas por Socket.IO para atualizar as interfaces sem depender apenas de recarregamento manual.
+
+O estoque é dividido em quantidade produzida, disponível, reservada e entregue. Reservas ativas podem ser canceladas pelo morador; administradores e colaboradores com a permissão correspondente podem confirmar a entrega ou cancelar a reserva pelo painel.
+
+Cada usuário pode manter somente uma reserva ativa para cada colheita. O mobile e o web removem essa colheita da lista de disponíveis do próprio usuário e a exibem em "Minhas reservas". Uma nova reserva para a mesma colheita só pode ser feita depois do cancelamento da reserva anterior.
+
+Na aplicação web, a seção "Colheitas" assume funções diferentes conforme o perfil:
+
+- Administradores e colaboradores visualizam todas as colheitas, inclusive as que já possuem reservas, e podem administrar cadastro, edição, ciclo de status, exclusão e reservas.
+- A área "Reservas da comunidade" mostra a cultura, o usuário, o e-mail, a quantidade, o status e permite confirmar entrega ou cancelar uma reserva, conforme a permissão.
+- "Minhas reservas" é uma visão pessoal e mostra somente as reservas do usuário conectado, incluindo a quantidade reservada.
+- Moradores e demais usuários sem permissão de gestão utilizam "Colheitas" para consultar disponibilidade e fazer reservas.
+
+O dashboard administrativo atual cobre produção, estoque, reservas, confirmação de entrega, auditoria e atualização em tempo real. Permanecem como evoluções de módulo, e não devem ser considerados entregues apenas pelos indicadores atuais:
+
+- fila de espera e promoção automática após cancelamentos;
+- registro e indicadores de perdas;
+- relatórios mensais e comparativos por cultura;
+- notificações push para o mobile;
+- etapas intermediárias de separação e pronta para retirada;
+- prazo, local e responsável pela retirada;
+- limites configuráveis de distribuição por usuário.
+
+## Plano de evolução adotado
+
+O painel web é a superfície administrativa para administradores e colaboradores. O aplicativo mobile permanece focado no morador e no colaborador em campo: consulta de disponibilidade, reservas, cancelamentos e acompanhamento de atualizações.
+
+As reservas administrativas são separadas em:
+
+- **Ativas**: reservas que ainda exigem separação, retirada ou confirmação de entrega;
+- **Histórico**: reservas canceladas, entregues ou expiradas, preservadas para auditoria e relatórios.
+
+Essa separação evita que o histórico operacional seja confundido com trabalho pendente e mantém a rastreabilidade sem apagar registros.
+
+A API segue a mesma regra: `GET /reservations` retorna ativas por padrão; `status=history` retorna canceladas, entregues e expiradas; `status=all` é reservado para telas que precisam alternar entre as duas visões.
+
+O próximo incremento funcional deve implementar, nesta ordem, fila de espera,
+perdas e ajustes de estoque, fluxo de separação/retirada, relatórios e
+notificações. Cada módulo deverá ter modelo persistente, API protegida, regras
+de estado, auditoria e interface web/mobile antes de ser considerado concluído.
+
+## Calendário operacional
+
+O calendário usa os campos persistidos `plantingDate` e `harvestDate` de cada colheita como fonte única de verdade. Ele não cria uma coleção paralela nem duplica reservas:
+
+- `GET /harvest/calendar?from=<ISO>&to=<ISO>` retorna eventos dentro do intervalo;
+- cada evento é `planting` ou `harvest`;
+- eventos carregam cultura, quantidade, unidade e status atual da colheita;
+- o intervalo é fechado no início e aberto no fim (`from <= date < to`);
+- datas inválidas ou intervalo invertido retornam `422`;
+- o MongoDB possui índices para `plantingDate` e `harvestDate`.
+
+No painel web, administradores e colaboradores navegam por mês e visualizam plantios e colheitas previstas. No mobile, moradores veem somente as próximas colheitas previstas, sem receber ações administrativas de produção.
+
+## Status de entrega do módulo
+
+| Capacidade | Situação |
+|---|---|
+| Cadastro, edição, exclusão e status de colheitas | Implementado |
+| Datas de plantio e colheita com validação | Implementado |
+| Quantidade produzida, disponível, reservada e entregue | Implementado |
+| Reserva com quantidade | Implementado |
+| Uma reserva ativa por usuário e colheita | Implementado |
+| Cancelamento pelo morador | Implementado |
+| Confirmação de entrega pelo gestor | Implementado |
+| Reservas ativas e histórico administrativo | Implementado |
+| Dashboard de produção e estoque | Implementado |
+| Calendário operacional web | Implementado |
+| Próximas colheitas no mobile | Implementado |
+| Auditoria de operações críticas | Implementado parcialmente |
+| Fila de espera | Planejado |
+| Perdas e ajustes de estoque | Planejado |
+| Separação, retirada e notificações push | Planejado |
+| Relatórios gerenciais | Planejado |
+
+O módulo é adequado para um piloto comunitário integrado. Para operação
+profissional em escala, os itens planejados devem ser concluídos antes de
+considerar o processo totalmente operacional.
 
 ---
 
