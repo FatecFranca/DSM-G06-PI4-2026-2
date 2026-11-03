@@ -6,6 +6,7 @@ import {
   Droplets,
   History,
   LayoutDashboard,
+  Leaf,
   Play,
   Plus,
   Sprout,
@@ -29,11 +30,46 @@ import './App.css';
 type Harvest = {
   id?: string;
   crop: string;
+  category?: string;
+  status?: string;
   harvestDate: string;
   quantity: number;
+  availableQuantity?: number;
+  reservedQuantity?: number;
+  deliveredQuantity?: number;
+  unit?: string;
   available: boolean;
   reservedBy?: string;
   reservedAt?: string;
+  reservationId?: string;
+  reservationQuantity?: number;
+  plantingDate?: string;
+  notes?: string;
+};
+type AdminReservation = {
+  _id: string;
+  quantity: number;
+  status: 'active' | 'cancelled' | 'expired' | 'delivered';
+  reservedAt: string;
+  harvestCode: string;
+  harvestId?: { id?: string; crop?: string; harvestDate?: string; unit?: string };
+  userId?: { fullName?: string; email?: string };
+};
+type HarvestMetrics = {
+  harvests: number;
+  produced: number;
+  available: number;
+  reserved: number;
+  delivered: number;
+};
+type HarvestCalendarEvent = {
+  harvestId: string;
+  crop: string;
+  type: 'planting' | 'harvest';
+  date: string;
+  status?: string;
+  quantity: number;
+  unit?: string;
 };
 type AuditEntry = {
   _id: string;
@@ -92,6 +128,11 @@ type UserStats = {
   roles: Record<string, number>;
 };
 
+function toApiDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 async function requestApi<T>(
   path: string,
   options?: RequestInit,
@@ -115,12 +156,12 @@ async function requestApi<T>(
       }
     : options;
   const response = await fetch(`${API_URL}${path}`, {
+    ...requestOptions,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...requestOptions?.headers,
     },
-    ...requestOptions,
   });
   const body = await response.json().catch(() => null);
   if (!response.ok) {
@@ -210,6 +251,13 @@ function App() {
   const [history, setHistory] = useState<Telemetry[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
   const [myReservations, setMyReservations] = useState<Harvest[]>([]);
+  const [adminReservations, setAdminReservations] = useState<AdminReservation[]>([]);
+  const [harvestMetrics, setHarvestMetrics] = useState<HarvestMetrics | null>(null);
+  const [harvestAdminTab, setHarvestAdminTab] = useState<'production' | 'reservations'>('production');
+  const [reservationView, setReservationView] = useState<'active' | 'history'>('active');
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [calendarEvents, setCalendarEvents] = useState<HarvestCalendarEvent[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [harvestFilter, setHarvestFilter] = useState<'all' | 'available'>(
     'all',
   );
@@ -219,12 +267,21 @@ function App() {
   const [socketConnected, setSocketConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [requestError, setRequestError] = useState('');
+  const [requestErrorIsConnection, setRequestErrorIsConnection] = useState(false);
   const [irrigationPending, setIrrigationPending] = useState(false);
   const [reservingId, setReservingId] = useState<string | null>(null);
+  const [reservationQuantities, setReservationQuantities] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
+  const [harvestFormError, setHarvestFormError] = useState('');
+  const [editingHarvest, setEditingHarvest] = useState<Harvest | null>(null);
   const [newCrop, setNewCrop] = useState('');
+  const [newCategory, setNewCategory] = useState('other');
   const [newDate, setNewDate] = useState('');
+  const [newPlantingDate, setNewPlantingDate] = useState('');
   const [newQuantity, setNewQuantity] = useState('');
+  const [newUnit, setNewUnit] = useState('unidade');
+  const [newStatus, setNewStatus] = useState('available');
+  const [newNotes, setNewNotes] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState('');
@@ -274,8 +331,17 @@ function App() {
       minute: '2-digit',
     }),
   }));
+  const canManageHarvests = Boolean(session?.permissions.includes('manage_harvests'));
+  const canManageReservations = Boolean(session?.permissions.includes('manage_reservations'));
+  const visibleAdminReservations = adminReservations.filter((reservation) =>
+    reservationView === 'active' ? reservation.status === 'active' : reservation.status !== 'active',
+  );
   const filteredHarvests = harvests.filter(
-    (harvest) => harvestFilter === 'all' || harvest.available,
+    (harvest) => {
+      if (canManageHarvests) return true;
+      const alreadyReserved = myReservations.some((reservation) => reservation.id === harvest.id);
+      return !alreadyReserved && (harvestFilter === 'all' || harvest.available);
+    },
   );
   const apiOnline = Boolean(status) && !requestError;
   const canManageUsers = Boolean(session?.permissions.includes('view_users'));
@@ -293,25 +359,55 @@ function App() {
 
   async function loadDashboard() {
     try {
-      const [nextStatus, nextHistory, nextHarvests, nextReservations] = await Promise.all([
+      const [nextStatus, nextHistory, nextHarvests, nextReservations, nextAdminReservations, nextHarvestMetrics] = await Promise.all([
         requestApi<Status>('/status', undefined, session?.token),
         requestApi<Telemetry[]>('/telemetry/history', undefined, session?.token),
         requestApi<Harvest[]>('/harvest', undefined, session?.token),
         requestApi<Harvest[]>('/harvest/mine', undefined, session?.token),
+        canManageReservations
+          ? requestApi<{ reservations: AdminReservation[] }>('/reservations?status=all', undefined, session?.token)
+          : Promise.resolve({ reservations: [] }),
+        canManageHarvests
+          ? requestApi<{ totals: HarvestMetrics }>('/harvest/dashboard', undefined, session?.token)
+          : Promise.resolve({ totals: null }),
       ]);
       setStatus(nextStatus);
       setHistory(nextHistory);
       setHarvests(nextHarvests);
       setMyReservations(nextReservations);
+      setAdminReservations(nextAdminReservations.reservations);
+      setHarvestMetrics(nextHarvestMetrics.totals);
       setLastSyncedAt(new Date().toISOString());
       setCurrentTime(Date.now());
       setRequestError('');
+      setRequestErrorIsConnection(false);
     } catch (error) {
       setRequestError(
         error instanceof Error ? error.message : 'API indisponível.',
       );
+      setRequestErrorIsConnection(true);
     } finally {
       setLoading(false);
+    }
+
+  }
+
+  async function loadCalendar() {
+    if (!session?.token) return;
+    const from = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const to = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
+    setCalendarLoading(true);
+    try {
+      const result = await requestApi<{ events: HarvestCalendarEvent[] }>(
+        `/harvest/calendar?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
+        undefined,
+        session.token,
+      );
+      setCalendarEvents(result.events);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Falha ao carregar o calendário.');
+    } finally {
+      setCalendarLoading(false);
     }
   }
 
@@ -684,6 +780,18 @@ function App() {
         return [telemetry, ...withoutDuplicate].slice(0, 100);
       });
     };
+    const handleHarvestUpdate = (nextHarvest: Harvest) => {
+      if (!nextHarvest.id) return;
+      setHarvests((current) => {
+        const exists = current.some((item) => item.id === nextHarvest.id);
+        return exists
+          ? current.map((item) => item.id === nextHarvest.id ? { ...item, ...nextHarvest } : item)
+          : [...current, nextHarvest];
+      });
+    };
+    const handleReservationUpdate = () => {
+      void loadDashboard();
+    };
     socket.on('connect', () => {
       setSocketConnected(true);
       setRequestError('');
@@ -695,12 +803,21 @@ function App() {
     });
     socket.on('status:update', handleStatusUpdate);
     socket.on('telemetry:update', handleTelemetryUpdate);
+    socket.on('harvest:created', handleHarvestUpdate);
+    socket.on('harvest:updated', handleHarvestUpdate);
+    socket.on('harvest:statusChanged', handleHarvestUpdate);
+    socket.on('reservation:created', handleReservationUpdate);
+    socket.on('reservation:cancelled', handleReservationUpdate);
     return () => {
       window.clearTimeout(initialLoadTimer);
       socket.removeAllListeners();
       socket.disconnect();
     };
   }, [session]);
+
+  useEffect(() => {
+    void loadCalendar();
+  }, [calendarMonth, session]);
 
   useEffect(() => {
     if (!session?.token) return;
@@ -753,7 +870,7 @@ function App() {
       <div className="auth-shell">
         <form className="auth-card" onSubmit={showForgotPassword ? (resetToken ? resetPasswordRequest : requestPasswordRecovery) : showRegistration ? register : login}>
           <div className="brand">
-            <span className="brand-mark"><Plus size={18} strokeWidth={2.2} /></span>
+            <span className="brand-mark"><Leaf size={18} strokeWidth={2.2} /></span>
             <span>Horta<br /><strong>Comunitária</strong></span>
           </div>
           <p className="eyebrow">ACESSO AO SISTEMA</p>
@@ -891,12 +1008,18 @@ function App() {
 
   async function reserveHarvest(harvest: Harvest) {
     if (!harvest.id || !harvest.available) return;
+    const quantity = Number(reservationQuantities[harvest.id] || 1);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      setRequestError('Informe uma quantidade inteira maior que zero.');
+      return;
+    }
     setReservingId(harvest.id);
     try {
       const reserved = await requestApi<Harvest>(
         `/harvest/${harvest.id}/reserve`,
         {
           method: 'PUT',
+          body: JSON.stringify({ quantity }),
         },
       );
       setHarvests((current) =>
@@ -933,26 +1056,111 @@ function App() {
 
   async function addHarvest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!newCrop || !newDate) return;
+    const formData = new FormData(event.currentTarget);
+    const crop = String(formData.get('crop') || '').trim();
+    if (!crop || !newDate || !newQuantity) {
+      setHarvestFormError('Preencha cultura, data de colheita e quantidade.');
+      return;
+    }
+    const harvestDate = toApiDate(newDate);
+    const plantingDate = newPlantingDate ? toApiDate(newPlantingDate) : null;
+    if (!harvestDate) {
+      setHarvestFormError('Informe uma data de colheita válida.');
+      return;
+    }
+    if (newPlantingDate && !plantingDate) {
+      setHarvestFormError('Informe uma data de plantio válida.');
+      return;
+    }
+    if (plantingDate && new Date(plantingDate) > new Date(harvestDate)) {
+      setHarvestFormError('A data do plantio não pode ser posterior à data prevista da colheita.');
+      return;
+    }
     try {
-      const harvest = await requestApi<Harvest>('/harvest', {
-        method: 'POST',
-        body: JSON.stringify({
-          crop: newCrop,
-          harvestDate: newDate,
-          quantity: Number(newQuantity || 0),
-        }),
+      const payload = {
+        crop,
+        category: newCategory,
+        harvestDate,
+        plantingDate: plantingDate || undefined,
+        quantity: Number(newQuantity),
+        unit: newUnit,
+        status: newStatus,
+        notes: newNotes || undefined,
+      };
+      await requestApi<Harvest>(editingHarvest?.id ? `/harvest/${editingHarvest.id}` : '/harvest', {
+        method: editingHarvest?.id ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload),
       });
-      setHarvests((current) => [...current, harvest]);
+      await loadDashboard();
+      setEditingHarvest(null);
       setNewCrop('');
+      setNewCategory('other');
       setNewDate('');
+      setNewPlantingDate('');
       setNewQuantity('');
+      setNewUnit('unidade');
+      setNewStatus('available');
+      setNewNotes('');
       setShowForm(false);
+      setHarvestFormError('');
       setRequestError('');
+      setRequestErrorIsConnection(false);
     } catch (error) {
-      setRequestError(
+      setHarvestFormError(
         error instanceof Error ? error.message : 'Falha ao criar colheita.',
       );
+    }
+  }
+
+  function openHarvestForm(harvest?: Harvest) {
+      setEditingHarvest(harvest || null);
+      setNewCrop(harvest?.crop || '');
+      setNewCategory(harvest?.category || 'other');
+      setNewDate(harvest ? new Date(harvest.harvestDate).toISOString().slice(0, 16) : '');
+      setNewPlantingDate(harvest?.plantingDate ? new Date(harvest.plantingDate).toISOString().slice(0, 16) : '');
+      setNewQuantity(harvest ? String(harvest.quantity) : '');
+      setNewUnit(harvest?.unit || 'unidade');
+      setNewStatus(harvest?.status || 'available');
+      setNewNotes(harvest?.notes || '');
+      setHarvestFormError('');
+      setShowForm(true);
+    }
+
+  async function deleteHarvest(harvest: Harvest) {
+      if (!harvest.id || !window.confirm(`Excluir a colheita de ${harvest.crop}?`)) return;
+      try {
+        await requestApi(`/harvest/${harvest.id}`, { method: 'DELETE' });
+        setHarvests((current) => current.filter((item) => item.id !== harvest.id));
+        setRequestError('');
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : 'Falha ao excluir colheita.');
+      }
+    }
+
+  async function changeHarvestStatus(harvest: Harvest, statusValue: string) {
+      if (!harvest.id) return;
+      try {
+        const updated = await requestApi<Harvest>(`/harvest/${harvest.id}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: statusValue }),
+        });
+        setHarvests((current) => current.map((item) => item.id === updated.id ? updated : item));
+        setRequestError('');
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : 'Falha ao atualizar status.');
+      }
+    }
+
+  async function changeReservationStatus(reservation: AdminReservation, statusValue: 'delivered' | 'cancelled') {
+    try {
+      await requestApi(`/reservations/${reservation._id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: statusValue }),
+      });
+      await loadDashboard();
+      setRequestError('');
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Falha ao atualizar reserva.');
     }
   }
 
@@ -961,7 +1169,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">
-            <Plus size={18} strokeWidth={2.2} />
+            <Leaf size={18} strokeWidth={2.2} />
           </span>
           <span>
             Horta
@@ -1034,9 +1242,9 @@ function App() {
         <section className="content-wrap">
           {requestError && (
             <div className="api-error" role="alert">
-              <strong>API indisponível</strong>
+              <strong>{requestErrorIsConnection ? 'API indisponível' : 'Atenção'}</strong>
               <span>{requestError}</span>
-              <button onClick={loadDashboard}>Tentar novamente</button>
+              {requestErrorIsConnection && <button onClick={loadDashboard}>Tentar novamente</button>}
             </div>
           )}
           {loading && (
@@ -1074,12 +1282,13 @@ function App() {
                       : 'Aqui está o que está acontecendo na horta hoje.'}
               </p>
             </div>
-            {activeSection !== 'Usuários' &&
+            {canManageHarvests &&
+              activeSection !== 'Usuários' &&
               (activeSection === 'Visão geral' ||
                 activeSection === 'Colheitas') && (
               <button
                 className="primary-button"
-                onClick={() => setShowForm(true)}
+                onClick={() => openHarvestForm()}
               >
                 <Plus size={16} strokeWidth={2} /> Nova colheita
               </button>
@@ -1161,11 +1370,11 @@ function App() {
                 <div><h2>Minhas reservas</h2><p>Acompanhe e cancele suas reservas de colheitas.</p></div>
                 <button className="text-button" onClick={() => void loadDashboard()}>Atualizar</button>
               </div>
-              <div className="harvest-list">
+                <div className="harvest-list">
                 {myReservations.map((harvest) => (
                   <div className="harvest-row" key={harvest.id}>
                     <div className="crop-avatar">{harvest.crop.charAt(0)}</div>
-                    <div className="crop-info"><strong>{harvest.crop}</strong><span>{formatDate(harvest.harvestDate)} · {harvest.quantity || 'A definir'}</span></div>
+                    <div className="crop-info"><strong>{harvest.crop}</strong><span>{formatDate(harvest.harvestDate)} · Quantidade reservada: {harvest.reservationQuantity || harvest.reservedQuantity || 1} {harvest.unit || 'unidade'}</span></div>
                     <span className="status-pill upcoming">Reservada</span>
                     <button className="text-button" onClick={() => void cancelReservation(harvest)}>Cancelar reserva</button>
                   </div>
@@ -1490,8 +1699,8 @@ function App() {
           >
             <div className="panel-heading">
               <div>
-                <h2>Próximas colheitas</h2>
-                <p>Organize a distribuição dos alimentos</p>
+                <h2>{canManageHarvests && activeSection === 'Colheitas' ? 'Gestão de colheitas' : 'Próximas colheitas'}</h2>
+                <p>{canManageHarvests && activeSection === 'Colheitas' ? 'Produção, estoque e distribuição da horta' : 'Organize a distribuição dos alimentos'}</p>
               </div>
               {activeSection === 'Visão geral' ? (
                 <button
@@ -1514,7 +1723,50 @@ function App() {
                 </select>
               )}
             </div>
-            <div className="harvest-list">
+            {activeSection === 'Colheitas' && (
+              <div className="harvest-calendar" aria-label="Calendário operacional">
+                <div className="calendar-heading">
+                  <div>
+                    <strong>{calendarMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</strong>
+                    <span>Plantios e colheitas previstas</span>
+                  </div>
+                  <div className="calendar-controls">
+                    <button className="text-button" onClick={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} aria-label="Mês anterior">‹</button>
+                    <button className="text-button" onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>Hoje</button>
+                    <button className="text-button" onClick={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} aria-label="Próximo mês">›</button>
+                  </div>
+                </div>
+                {calendarLoading && <div className="loading-state">Carregando agenda...</div>}
+                {!calendarLoading && !calendarEvents.length && <div className="empty-state">Nenhum plantio ou colheita previsto neste mês.</div>}
+                {!calendarLoading && calendarEvents.length > 0 && (
+                  <div className="calendar-events">
+                    {calendarEvents.map((event) => (
+                      <div className={`calendar-event ${event.type}`} key={`${event.harvestId}-${event.type}-${event.date}`}>
+                        <time dateTime={event.date}>{new Date(event.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}</time>
+                        <div><strong>{event.crop}</strong><span>{event.type === 'planting' ? 'Plantio' : 'Colheita prevista'} · {event.quantity} {event.unit || 'unidade'}</span></div>
+                        <span className="status-pill upcoming">{event.status === 'cancelled' ? 'Cancelada' : event.type === 'planting' ? 'Planejado' : 'Operação'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {canManageHarvests && activeSection === 'Colheitas' && harvestMetrics && (
+              <div className="harvest-metrics" aria-label="Indicadores de colheitas">
+                <div><strong>{harvestMetrics.harvests}</strong><span>Colheitas</span></div>
+                <div><strong>{harvestMetrics.produced}</strong><span>Produzidas</span></div>
+                <div><strong>{harvestMetrics.available}</strong><span>Disponíveis</span></div>
+                <div><strong>{harvestMetrics.reserved}</strong><span>Reservadas</span></div>
+                <div><strong>{harvestMetrics.delivered}</strong><span>Entregues</span></div>
+              </div>
+            )}
+            {canManageHarvests && activeSection === 'Colheitas' && (
+              <div className="harvest-admin-tabs" role="tablist" aria-label="Módulos de gestão de colheitas">
+                <button className={harvestAdminTab === 'production' ? 'active' : ''} onClick={() => setHarvestAdminTab('production')} role="tab" aria-selected={harvestAdminTab === 'production'}>Produção e estoque</button>
+                <button className={harvestAdminTab === 'reservations' ? 'active' : ''} onClick={() => setHarvestAdminTab('reservations')} role="tab" aria-selected={harvestAdminTab === 'reservations'}>Reservas da comunidade ({adminReservations.filter((item) => item.status === 'active').length})</button>
+              </div>
+            )}
+            {(!canManageHarvests || activeSection !== 'Colheitas' || harvestAdminTab === 'production') && <div className="harvest-list">
               {filteredHarvests.map((harvest) => (
                 <div
                   className="harvest-row"
@@ -1525,7 +1777,7 @@ function App() {
                     <strong>{harvest.crop}</strong>
                     <span>
                       {formatDate(harvest.harvestDate)} ·{' '}
-                      {harvest.quantity || 'A definir'}
+                      {(harvest.availableQuantity ?? harvest.quantity) || 'A definir'} {harvest.unit || 'unidade'}
                     </span>
                   </div>
                   <span
@@ -1535,25 +1787,91 @@ function App() {
                         : 'status-pill upcoming'
                     }
                   >
-                    {harvest.available ? 'Disponível' : 'Reservada'}
+                    {harvest.status === 'planned' ? 'Planejada' : harvest.status === 'growing' ? 'Em cultivo' : harvest.status === 'ready' ? 'Pronta' : harvest.status === 'cancelled' ? 'Cancelada' : harvest.available ? 'Disponível' : 'Reservada'}
                   </span>
-                  {activeSection === 'Colheitas' && harvest.available && (
-                    <button
-                      className="reserve-button"
-                      onClick={() => reserveHarvest(harvest)}
-                      disabled={reservingId === harvest.id}
-                    >
-                      {reservingId === harvest.id
-                        ? 'Reservando...'
-                        : 'Reservar'}
-                    </button>
+                  {canManageHarvests && activeSection === 'Colheitas' && (
+                    <div className="harvest-actions">
+                      <select
+                        className="select-button"
+                        value={harvest.status || 'available'}
+                        onChange={(event) => void changeHarvestStatus(harvest, event.target.value)}
+                        aria-label={`Status de ${harvest.crop}`}
+                      >
+                        <option value="planned">Planejada</option>
+                        <option value="growing">Em cultivo</option>
+                        <option value="ready">Pronta</option>
+                        <option value="available">Disponível</option>
+                        <option value="cancelled">Cancelada</option>
+                      </select>
+                      <button className="text-button" onClick={() => openHarvestForm(harvest)}>Editar</button>
+                      <button className="text-button danger-text" onClick={() => void deleteHarvest(harvest)}>Excluir</button>
+                    </div>
+                  )}
+                  {!canManageHarvests && activeSection === 'Colheitas' && harvest.available && (
+                    <>
+                      <input
+                        className="quantity-input"
+                        type="number"
+                        min="1"
+                        max={harvest.availableQuantity ?? harvest.quantity}
+                        value={reservationQuantities[harvest.id || ''] ?? ''}
+                        placeholder="1"
+                        onChange={(event) => setReservationQuantities((current) => ({ ...current, [harvest.id || '']: event.target.value }))}
+                        aria-label={`Quantidade de ${harvest.crop}`}
+                      />
+                      <button
+                        className="reserve-button"
+                        onClick={() => reserveHarvest(harvest)}
+                        disabled={reservingId === harvest.id}
+                      >
+                        {reservingId === harvest.id ? 'Reservando...' : 'Reservar'}
+                      </button>
+                    </>
                   )}
                 </div>
               ))}
               {!filteredHarvests.length && (
                 <div className="empty-state">Nenhuma colheita encontrada.</div>
               )}
-            </div>
+            </div>}
+            {canManageReservations && activeSection === 'Colheitas' && harvestAdminTab === 'reservations' && (
+              <div className="reservation-management">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Reservas da comunidade</h2>
+                    <p>Consulte quem reservou, quantidade e situação de cada pedido.</p>
+                  </div>
+                  <div className="reservation-toolbar">
+                    <select className="select-button" value={reservationView} onChange={(event) => setReservationView(event.target.value as 'active' | 'history')} aria-label="Filtrar reservas">
+                      <option value="active">Ativas</option>
+                      <option value="history">Histórico</option>
+                    </select>
+                    <button className="text-button" onClick={() => void loadDashboard()}>Atualizar</button>
+                  </div>
+                </div>
+                <div className="reservation-list">
+                  {visibleAdminReservations.map((reservation) => (
+                    <div className="reservation-row" key={reservation._id}>
+                      <div>
+                        <strong>{reservation.harvestId?.crop || reservation.harvestCode}</strong>
+                        <span>{reservation.userId?.fullName || 'Usuário'} · {reservation.userId?.email || 'e-mail indisponível'}</span>
+                      </div>
+                      <span>{reservation.quantity} {reservation.harvestId?.unit || 'unidade'}</span>
+                      <span className={`status-pill ${reservation.status === 'active' ? 'healthy' : reservation.status === 'delivered' ? 'ready' : 'upcoming'}`}>
+                        {reservation.status === 'active' ? 'Ativa' : reservation.status === 'delivered' ? 'Entregue' : reservation.status === 'cancelled' ? 'Cancelada' : 'Expirada'}
+                      </span>
+                      {reservation.status === 'active' && (
+                        <div className="user-actions">
+                          <button className="reserve-button" onClick={() => void changeReservationStatus(reservation, 'delivered')}>Confirmar entrega</button>
+                          <button className="text-button danger-text" onClick={() => void changeReservationStatus(reservation, 'cancelled')}>Cancelar</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {!visibleAdminReservations.length && <div className="empty-state">{reservationView === 'active' ? 'Nenhuma reserva ativa.' : 'Nenhum registro no histórico.'}</div>}
+                </div>
+              </div>
+            )}
           </section>
           <footer className="page-footer">
             <span>
@@ -1578,19 +1896,36 @@ function App() {
             >
               ×
             </button>
-            <p className="eyebrow">CALENDÁRIO</p>
-            <h2>Nova colheita</h2>
+            <p className="eyebrow">GESTÃO DE PRODUÇÃO</p>
+            <h2>{editingHarvest ? 'Editar colheita' : 'Nova colheita'}</h2>
+            {harvestFormError && <div className="form-error" role="alert">{harvestFormError}</div>}
             <label>
-              Hortaliça
+              Cultura
               <input
+                name="crop"
                 value={newCrop}
-                onChange={(event) => setNewCrop(event.target.value)}
+                onChange={(event) => {
+                  setNewCrop(event.target.value);
+                  if (harvestFormError) setHarvestFormError('');
+                }}
                 placeholder="Ex.: Manjericão"
+                autoComplete="off"
                 required
               />
             </label>
             <label>
-              Data e horário
+              Categoria
+              <select value={newCategory} onChange={(event) => setNewCategory(event.target.value)}>
+                <option value="leafy">Folhosas</option>
+                <option value="vegetable">Legumes</option>
+                <option value="fruit">Frutas</option>
+                <option value="herb">Temperos</option>
+                <option value="medicinal">Medicinais</option>
+                <option value="other">Outros</option>
+              </select>
+            </label>
+            <label>
+              Data prevista da colheita
               <input
                 type="datetime-local"
                 value={newDate}
@@ -1599,18 +1934,50 @@ function App() {
               />
             </label>
             <label>
+              Data do plantio (real ou prevista)
+              <input
+                type="datetime-local"
+                value={newPlantingDate}
+                onChange={(event) => setNewPlantingDate(event.target.value)}
+              />
+              <small>O plantio pode estar no passado ou no futuro, mas nunca depois da colheita.</small>
+            </label>
+            <label>
               Quantidade
               <input
                 type="number"
-                min="0"
+                min="1"
                 step="1"
                 value={newQuantity}
                 onChange={(event) => setNewQuantity(event.target.value)}
                 placeholder="Ex.: 24"
+                required
               />
             </label>
+            <label>
+              Unidade
+              <select value={newUnit} onChange={(event) => setNewUnit(event.target.value)}>
+                <option value="unidade">Unidades</option>
+                <option value="kg">Quilogramas (kg)</option>
+                <option value="maço">Maços</option>
+                <option value="caixa">Caixas</option>
+              </select>
+            </label>
+            <label>
+              Status inicial
+              <select value={newStatus} onChange={(event) => setNewStatus(event.target.value)}>
+                <option value="planned">Planejada</option>
+                <option value="growing">Em cultivo</option>
+                <option value="ready">Pronta</option>
+                <option value="available">Disponível</option>
+              </select>
+            </label>
+            <label>
+              Observações
+              <textarea value={newNotes} onChange={(event) => setNewNotes(event.target.value)} placeholder="Cultivo orgânico, lote, cuidados..." rows={3} />
+            </label>
             <button className="primary-button" type="submit">
-              Adicionar ao calendário
+              {editingHarvest ? 'Salvar alterações' : 'Cadastrar colheita'}
             </button>
           </form>
         </div>
