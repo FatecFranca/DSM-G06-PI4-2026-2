@@ -15,6 +15,7 @@ export function createAuthToken(user) {
       sub: user._id.toString(),
       roles: user.roles,
       permissions: getPermissionsForRoles(user.roles),
+      authVersion: user.authVersion || 0,
     },
     getJwtSecret(),
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' },

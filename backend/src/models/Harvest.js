@@ -8,6 +8,7 @@ const harvestSchema = new mongoose.Schema(
     quantity: { type: Number, min: 0, default: 0 },
     available: { type: Boolean, default: true, index: true },
     reservedBy: { type: String, trim: true },
+    reservedByUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     reservedAt: { type: Date },
   },
   { versionKey: false },

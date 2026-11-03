@@ -298,6 +298,81 @@ nav {
 .users-panel {
   margin-top: 16px;
 }
+.user-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 20px 0;
+}
+.user-stats > div {
+  background: #f5f8f3;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 11px;
+}
+.user-stats strong,
+.user-stats span {
+  display: block;
+}
+.user-stats strong {
+  color: var(--deep);
+  font-size: 20px;
+}
+.user-stats span {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 3px;
+}
+.user-filters {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+.user-filters label,
+.admin-user-form label {
+  color: var(--muted);
+  display: grid;
+  font-size: 11px;
+  gap: 5px;
+}
+.user-filters select,
+.admin-user-form input {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--deep);
+  font: inherit;
+  padding: 8px 10px;
+}
+.admin-user-form {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+.admin-user-form fieldset,
+.admin-user-form .user-actions {
+  grid-column: 1 / -1;
+}
+.admin-user-form fieldset {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 10px;
+}
+.admin-user-form fieldset label {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+.user-row > div:first-child small {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  margin-top: 5px;
+}
 .profile-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -361,6 +436,24 @@ nav {
 .users-list {
   display: grid;
 }
+.audit-list {
+  display: grid;
+}
+.audit-row {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr);
+  padding: 14px 0;
+}
+.audit-row span,
+.audit-row small {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  margin-top: 4px;
+}
 .user-row {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(210px, 1fr) auto;
@@ -401,7 +494,18 @@ nav {
   color: #68478e;
 }
 @media (max-width: 800px) {
+  .user-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .user-row {
+    grid-template-columns: 1fr;
+  }
+  .audit-row {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 650px) {
+  .admin-user-form {
     grid-template-columns: 1fr;
   }
 }

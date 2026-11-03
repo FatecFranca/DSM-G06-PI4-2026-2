@@ -70,6 +70,7 @@ const userSchema = new mongoose.Schema(
     lastLoginAt: { type: Date },
     passwordResetTokenHash: { type: String, select: false },
     passwordResetExpiresAt: { type: Date, select: false },
+    authVersion: { type: Number, default: 0 },
   },
   { timestamps: true, versionKey: false },
 );
