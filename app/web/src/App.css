@@ -8,6 +8,7 @@
   --cream: #fbfcf9;
   --amber: #ba7e26;
   --soft-amber: #fff4df;
+  --focus: #6f9f78;
 }
 .app-shell {
   min-height: 100vh;
@@ -46,6 +47,7 @@
   color: #fff;
   font-size: 24px;
   font-weight: 300;
+  box-shadow: 0 5px 12px rgba(63, 122, 75, 0.2);
 }
 .workspace-label {
   color: #a4aca5;
@@ -143,7 +145,7 @@ nav {
   padding: 0 5.3%;
 }
 .breadcrumb {
-  font-size: 12px;
+  font-size: 13px;
   color: #8b968d;
 }
 .breadcrumb span {
@@ -248,7 +250,7 @@ nav {
   display: grid;
   gap: 7px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 16px;
 }
 .auth-card input,
@@ -932,12 +934,174 @@ nav {
 .harvest-list {
   margin-top: 18px;
 }
+.harvest-calendar {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #e3ebe1;
+  border-radius: 14px;
+  background: #fbfdfb;
+}
+.calendar-heading,
+.calendar-controls,
+.calendar-event {
+  display: flex;
+  align-items: center;
+}
+.calendar-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+.calendar-heading strong,
+.calendar-heading span {
+  display: block;
+}
+.calendar-heading strong {
+  color: #315d3b;
+  font-size: 15px;
+  text-transform: capitalize;
+}
+.calendar-heading span {
+  margin-top: 3px;
+  color: #7e8d82;
+  font-size: 12px;
+}
+.calendar-controls {
+  gap: 8px;
+}
+.calendar-events {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.calendar-event {
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid #edf0ed;
+}
+.calendar-event time {
+  min-width: 62px;
+  color: #4e8a57;
+  font-size: 12px;
+  font-weight: 800;
+}
+.calendar-event div {
+  flex: 1;
+}
+.calendar-event strong,
+.calendar-event span {
+  display: block;
+}
+.calendar-event div span {
+  margin-top: 3px;
+  color: #7e8d82;
+  font-size: 12px;
+}
+.calendar-event.planting time {
+  color: #9a7a43;
+}
+.harvest-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+.harvest-metrics div {
+  padding: 14px;
+  border: 1px solid #e3ebe1;
+  border-radius: 10px;
+  background: #f8fbf7;
+}
+.harvest-metrics strong,
+.harvest-metrics span {
+  display: block;
+}
+.harvest-metrics strong {
+  color: #315d3b;
+  font-size: 20px;
+}
+.harvest-metrics span {
+  margin-top: 4px;
+  color: #7e8d82;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.harvest-admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 22px;
+  border-bottom: 1px solid #e5ece4;
+}
+.harvest-admin-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 12px;
+  background: transparent;
+  color: #7a897e;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.harvest-admin-tabs button.active {
+  border-bottom-color: #4e8a57;
+  color: #315d3b;
+}
+.reservation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .harvest-row {
   display: flex;
   align-items: center;
   gap: 12px;
   border-top: 1px solid #edf0ed;
   padding: 11px 0;
+}
+.harvest-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.reservation-management {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #e8eee8;
+}
+.reservation-list {
+  margin-top: 10px;
+}
+.reservation-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid #edf0ed;
+  padding: 13px 0;
+}
+.reservation-row strong,
+.reservation-row span {
+  display: block;
+}
+.reservation-row > div:first-child span {
+  margin-top: 3px;
+  color: #99a49c;
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .harvest-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .reservation-row {
+    grid-template-columns: 1fr auto;
+  }
+  .calendar-event .status-pill {
+    display: none;
+  }
+}
+.danger-text {
+  color: #b45c5c;
 }
 .crop-avatar {
   display: grid;
@@ -956,11 +1120,11 @@ nav {
 .crop-info strong {
   display: block;
   color: #425548;
-  font-size: 11px;
+  font-size: 13px;
 }
 .crop-info span {
   color: #99a49c;
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 3px;
   display: block;
 }
@@ -979,6 +1143,14 @@ nav {
   font-weight: bold;
   padding: 7px 10px;
   white-space: nowrap;
+}
+.quantity-input {
+  border: 1px solid #dbe8d8;
+  border-radius: 5px;
+  color: #18352b;
+  font-size: 11px;
+  padding: 6px;
+  width: 52px;
 }
 .reserve-button:hover {
   background: #e7f3e6;
@@ -1029,13 +1201,25 @@ nav {
     normal 24px Georgia,
     serif;
 }
+.form-error {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid #e8bcbc;
+  border-radius: 6px;
+  background: #fff3f3;
+  color: #a74d4d;
+  font-size: 12px;
+  line-height: 1.4;
+}
 .modal label {
   display: block;
   font-size: 11px;
   color: #66756b;
   margin-bottom: 16px;
 }
-.modal input {
+.modal input,
+.modal select,
+.modal textarea {
   display: block;
   width: 100%;
   margin-top: 7px;
@@ -1044,6 +1228,10 @@ nav {
   padding: 10px;
   font-size: 12px;
   outline-color: #6e9e73;
+  font: inherit;
+}
+.modal textarea {
+  resize: vertical;
 }
 .modal .primary-button {
   width: 100%;

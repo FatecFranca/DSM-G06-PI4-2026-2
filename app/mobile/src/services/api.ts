@@ -1,4 +1,4 @@
-import type { Harvest, HortaStatus, Telemetry } from '../types/api';
+import type { Harvest, HarvestCalendarEvent, HortaStatus, Telemetry } from '../types/api';
 import * as SecureStore from 'expo-secure-store';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/+$/, '');
@@ -145,13 +145,24 @@ export const getTelemetryHistory = () =>
 
 export const getHarvests = () => requestApi<Harvest[]>('/harvest');
 
+export const getHarvestCalendar = (from: string, to: string) =>
+  requestApi<{ events: HarvestCalendarEvent[] }>(`/harvest/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+
+export const getMyReservations = () => requestApi<Harvest[]>('/harvest/mine');
+
 export const setIrrigation = (action: 'on' | 'off' | 'auto') =>
   requestApi<{ irrigation: HortaStatus['irrigation'] }>('/irrigation', {
     method: 'POST',
     body: JSON.stringify({ action }),
   });
 
-export const reserveHarvest = (id: string) =>
+export const reserveHarvest = (id: string, quantity = 1) =>
   requestApi<Harvest>(`/harvest/${id}/reserve`, {
+    method: 'PUT',
+    body: JSON.stringify({ quantity }),
+  });
+
+export const cancelReservation = (id: string) =>
+  requestApi<Harvest>(`/harvest/${id}/cancel-reservation`, {
     method: 'PUT',
   });

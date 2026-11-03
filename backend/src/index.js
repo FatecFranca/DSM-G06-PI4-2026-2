@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import mqtt from 'mqtt';
 import { Server } from 'socket.io';
 import { Harvest } from './models/Harvest.js';
+import { Reservation } from './models/Reservation.js';
 import { AuditLog } from './models/AuditLog.js';
 import { Telemetry } from './models/Telemetry.js';
 import { seedInitialAdmin } from './auth/bootstrap.js';
@@ -37,16 +38,28 @@ const demoHarvests = [
   {
     id: 'harvest-1',
     crop: 'Alface crespa',
+    category: 'leafy',
+    status: 'available',
     harvestDate: '2026-09-26T16:00:00.000Z',
     available: true,
     quantity: 24,
+    availableQuantity: 24,
+    reservedQuantity: 0,
+    deliveredQuantity: 0,
+    unit: 'unidade',
   },
   {
     id: 'harvest-2',
     crop: 'Cebolinha',
+    category: 'herb',
+    status: 'available',
     harvestDate: '2026-09-27T08:30:00.000Z',
     available: true,
     quantity: 18,
+    availableQuantity: 18,
+    reservedQuantity: 0,
+    deliveredQuantity: 0,
+    unit: 'unidade',
   },
 ];
 
@@ -65,12 +78,20 @@ function emitStatus() {
 function serializeHarvest(harvest) {
   const item = harvest.toObject ? harvest.toObject() : harvest;
   const reservedBy = item.reservedByUserId?._id || item.reservedByUserId || item.reservedBy;
+  const availableQuantity = item.availableQuantity ?? (
+    item.available ? item.quantity : 0
+  );
+  const reservedQuantity = item.reservedQuantity ?? item.quantity - availableQuantity;
   return {
     ...item,
     id: item.id || item._id?.toString(),
     _id: undefined,
     harvestDate: new Date(item.harvestDate).toISOString(),
     reservedBy: reservedBy?.toString(),
+    availableQuantity,
+    reservedQuantity,
+    deliveredQuantity: item.deliveredQuantity || 0,
+    status: item.status || (item.available ? 'available' : 'reserved'),
     reservedAt: item.reservedAt
       ? new Date(item.reservedAt).toISOString()
       : undefined,
@@ -81,6 +102,23 @@ async function seedHarvests() {
   if ((await Harvest.countDocuments()) > 0) return;
   await Harvest.insertMany(demoHarvests);
   console.log('Colheitas iniciais criadas');
+}
+
+async function normalizeActiveReservations() {
+  const duplicates = await Reservation.aggregate([
+    { $match: { status: 'active' } },
+    { $group: { _id: { harvestId: '$harvestId', userId: '$userId' }, ids: { $push: '$_id' }, quantity: { $sum: '$quantity' } } },
+    { $match: { 'ids.1': { $exists: true } } },
+  ]);
+  for (const duplicate of duplicates) {
+    const [keeper, ...obsolete] = duplicate.ids;
+    await Reservation.updateOne({ _id: keeper }, { $set: { quantity: duplicate.quantity } });
+    await Reservation.deleteMany({ _id: { $in: obsolete } });
+  }
+  await Reservation.collection.createIndex(
+    { harvestId: 1, userId: 1 },
+    { unique: true, partialFilterExpression: { status: 'active' }, name: 'one_active_reservation_per_user' },
+  );
 }
 
 app.use(helmet());
@@ -145,128 +183,400 @@ app.post('/irrigation', requireAuth, requirePermission('control_irrigation'), as
   }
   response.json({ message: `Irrigação ${action}`, irrigation });
 });
-app.get('/harvest', requireAuth, async (_request, response) => {
-  if (!isMongoReady()) return response.json(demoHarvests);
-  const harvests = await Harvest.find().sort({ harvestDate: 1 }).lean();
-  response.json(harvests.map(serializeHarvest));
-});
-app.get('/harvest/mine', requireAuth, requirePermission('view_harvests'), async (request, response) => {
-  if (!isMongoReady()) {
-    return response.json(
-      demoHarvests
-        .filter((harvest) => harvest.reservedByUserId?.toString() === request.user._id.toString())
-        .map(serializeHarvest),
-    );
-  }
-  const harvests = await Harvest.find({ reservedBy: request.user._id, available: false })
-    .sort({ reservedAt: -1 })
-    .lean();
-  response.json(harvests.map(serializeHarvest));
-});
-app.post('/harvest', requireAuth, requirePermission('manage_harvests'), async (request, response) => {
-  const { crop, harvestDate, quantity = 0 } = request.body;
-  const parsedHarvestDate = new Date(harvestDate);
-  const parsedQuantity = Number(quantity);
-  if (!crop || !harvestDate)
-    return response
-      .status(400)
-      .json({ error: 'crop e harvestDate são obrigatórios.' });
-  if (Number.isNaN(parsedHarvestDate.getTime()))
-    return response.status(400).json({ error: 'harvestDate inválida.' });
-  if (!Number.isFinite(parsedQuantity) || parsedQuantity < 0)
-    return response.status(400).json({ error: 'quantity inválida.' });
-  const harvest = {
-    id: `harvest-${Date.now()}`,
-    crop,
-    harvestDate: parsedHarvestDate,
-    quantity: parsedQuantity,
-    available: true,
-  };
-  if (!isMongoReady()) {
-    demoHarvests.push(harvest);
-    return response.status(201).json(harvest);
-  }
-  const createdHarvest = await Harvest.create(harvest);
-  await AuditLog.create({
-    actorUserId: request.user._id,
-    action: 'harvest.created',
-    targetUserId: request.user._id,
-    metadata: { harvestId: createdHarvest.id },
-    ip: request.ip,
-  });
-  response.status(201).json(serializeHarvest(createdHarvest));
-});
-app.put('/harvest/:id/reserve', requireAuth, requirePermission('reserve_harvest'), async (request, response) => {
-  if (isMongoReady()) {
-    const harvest = await Harvest.findOneAndUpdate(
-      { id: request.params.id, available: true },
-      {
-        $set: {
-          available: false,
-          reservedByUserId: request.user._id,
-          reservedAt: new Date(),
-        },
-        $unset: { reservedBy: 1 },
-      },
-      { new: true },
-    );
-    if (harvest) {
-      await AuditLog.create({
-        actorUserId: request.user._id,
-        action: 'harvest.reserved',
-        targetUserId: request.user._id,
-        metadata: { harvestId: harvest.id },
-        ip: request.ip,
-      });
-      return response.json(serializeHarvest(harvest));
-    }
-    const existingHarvest = await Harvest.exists({ id: request.params.id });
-    if (!existingHarvest)
-      return response.status(404).json({ error: 'Colheita não encontrada.' });
-    return response.status(409).json({ error: 'Colheita já reservada.' });
-  }
+function parsePositiveQuantity(value, fallback = 1) {
+  const quantity = Number(value ?? fallback);
+  return Number.isInteger(quantity) && quantity > 0 ? quantity : null;
+}
 
-  const harvest = demoHarvests.find((item) => item.id === request.params.id);
-  if (!harvest)
-    return response.status(404).json({ error: 'Colheita não encontrada.' });
-  if (!harvest.available)
-    return response.status(409).json({ error: 'Colheita já reservada.' });
-  harvest.available = false;
-  harvest.reservedByUserId = request.user._id.toString();
-  harvest.reservedAt = new Date().toISOString();
-  response.json(harvest);
+function validateHarvestDates(plantingDate, harvestDate) {
+  if (plantingDate && plantingDate > harvestDate) {
+    return 'A data do plantio não pode ser posterior à data prevista da colheita.';
+  }
+  return null;
+}
+
+function harvestPayload(body) {
+  const quantity = Number(body.quantity);
+  const harvestDate = new Date(body.harvestDate);
+  const plantingDate = body.plantingDate ? new Date(body.plantingDate) : undefined;
+  const crop = typeof body.crop === 'string' ? body.crop.trim() : '';
+  if (!crop) {
+    return { error: 'Informe a cultura.' };
+  }
+  if (Number.isNaN(harvestDate.getTime())) {
+    return { error: 'Informe uma data de colheita válida.' };
+  }
+  if (plantingDate && Number.isNaN(plantingDate.getTime())) {
+    return { error: 'Informe uma data de plantio válida.' };
+  }
+  const dateError = validateHarvestDates(plantingDate, harvestDate);
+  if (dateError) return { error: dateError };
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return { error: 'A quantidade produzida deve ser maior que zero.' };
+  }
+  return {
+    crop,
+    category: body.category || 'other',
+    status: body.status || 'available',
+    plantingDate,
+    harvestDate,
+    quantity,
+    availableQuantity: quantity,
+    reservedQuantity: 0,
+    deliveredQuantity: 0,
+    unit: body.unit?.trim() || 'unidade',
+    notes: body.notes?.trim(),
+    available: ['available', 'ready'].includes(body.status || 'available'),
+  };
+}
+
+app.get('/harvest', requireAuth, async (_request, response, next) => {
+  try {
+    if (!isMongoReady()) return response.json(demoHarvests.map(serializeHarvest));
+    const harvests = await Harvest.find().sort({ harvestDate: 1 }).lean();
+    response.json(harvests.map(serializeHarvest));
+  } catch (error) {
+    next(error);
+  }
 });
-app.put('/harvest/:id/cancel-reservation', requireAuth, requirePermission('reserve_harvest'), async (request, response) => {
-  if (isMongoReady()) {
-    const harvest = await Harvest.findOneAndUpdate(
-      { id: request.params.id, reservedByUserId: request.user._id, available: false },
-      { $set: { available: true }, $unset: { reservedBy: 1, reservedAt: 1 } },
-      { new: true },
-    );
-    if (!harvest) {
-      return response.status(404).json({ error: 'Reserva não encontrada.' });
+app.get('/harvest/calendar', requireAuth, async (request, response, next) => {
+  try {
+    const from = new Date(request.query.from || new Date().toISOString());
+    const to = new Date(request.query.to || new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString());
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+      return response.status(422).json({ error: 'Informe um período de calendário válido.' });
     }
+    const source = isMongoReady()
+      ? await Harvest.find({
+        $or: [
+          { harvestDate: { $gte: from, $lt: to } },
+          { plantingDate: { $gte: from, $lt: to } },
+        ],
+      }).sort({ harvestDate: 1 }).lean()
+      : demoHarvests.filter((harvest) => {
+        const harvestDate = new Date(harvest.harvestDate);
+        const plantingDate = harvest.plantingDate ? new Date(harvest.plantingDate) : null;
+        return (harvestDate >= from && harvestDate < to)
+          || (plantingDate && plantingDate >= from && plantingDate < to);
+      });
+    const events = source.flatMap((harvest) => {
+      const base = {
+        harvestId: harvest.id,
+        crop: harvest.crop,
+        status: harvest.status || (harvest.available ? 'available' : 'reserved'),
+        unit: harvest.unit || 'unidade',
+        quantity: harvest.quantity,
+      };
+      return [
+        ...(harvest.plantingDate && new Date(harvest.plantingDate) >= from && new Date(harvest.plantingDate) < to
+          ? [{ ...base, type: 'planting', date: new Date(harvest.plantingDate).toISOString() }]
+          : []),
+        ...(new Date(harvest.harvestDate) >= from && new Date(harvest.harvestDate) < to
+          ? [{ ...base, type: 'harvest', date: new Date(harvest.harvestDate).toISOString() }]
+          : []),
+      ];
+    }).sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime());
+    response.json({ from: from.toISOString(), to: to.toISOString(), events });
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/harvest/:id', requireAuth, async (request, response, next) => {
+  try {
+    if (['mine', 'dashboard'].includes(request.params.id)) return next();
+    const harvest = isMongoReady()
+      ? await Harvest.findOne({ id: request.params.id }).lean()
+      : demoHarvests.find((item) => item.id === request.params.id);
+    if (!harvest) return response.status(404).json({ error: 'Colheita não encontrada.' });
+    response.json(serializeHarvest(harvest));
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/harvest/mine', requireAuth, requirePermission('view_harvests'), async (request, response, next) => {
+  try {
+    if (!isMongoReady()) {
+      const reservations = demoHarvests.filter((harvest) => harvest.reservedByUserId?.toString() === request.user._id.toString());
+      return response.json(reservations.map(serializeHarvest));
+    }
+    const reservations = await Reservation.find({ userId: request.user._id, status: 'active' })
+      .populate('harvestId')
+      .sort({ reservedAt: -1 })
+      .lean();
+    response.json(reservations.map((reservation) => ({
+      ...serializeHarvest(reservation.harvestId),
+      reservationId: reservation._id.toString(),
+      reservedQuantity: reservation.quantity,
+      reservationStatus: reservation.status,
+    })));
+  } catch (error) {
+    next(error);
+  }
+});
+app.post('/harvest', requireAuth, requirePermission('manage_harvests'), async (request, response, next) => {
+  try {
+    const payload = harvestPayload(request.body);
+    if (payload.error) return response.status(422).json({ error: payload.error });
+    payload.id = `harvest-${Date.now()}`;
+    payload.createdBy = request.user._id;
+    if (!isMongoReady()) {
+      demoHarvests.push(payload);
+      io.emit('harvest:created', serializeHarvest(payload));
+      return response.status(201).json(serializeHarvest(payload));
+    }
+    const createdHarvest = await Harvest.create(payload);
     await AuditLog.create({
       actorUserId: request.user._id,
-      action: 'harvest.reservation_cancelled',
+      action: 'harvest.created',
+      targetUserId: request.user._id,
+      metadata: { harvestId: createdHarvest.id },
+      ip: request.ip,
+    });
+    const serialized = serializeHarvest(createdHarvest);
+    io.emit('harvest:created', serialized);
+    response.status(201).json(serialized);
+  } catch (error) {
+    next(error);
+  }
+});
+app.patch('/harvest/:id/status', requireAuth, requirePermission('manage_harvests'), async (request, response, next) => {
+  try {
+    const allowed = ['planned', 'growing', 'ready', 'available', 'cancelled'];
+    if (!allowed.includes(request.body.status)) return response.status(422).json({ error: 'Status de colheita inválido.' });
+    const harvest = isMongoReady()
+      ? await Harvest.findOneAndUpdate({ id: request.params.id }, { $set: { status: request.body.status, available: request.body.status === 'available' } }, { new: true })
+      : demoHarvests.find((item) => item.id === request.params.id);
+    if (!harvest) return response.status(404).json({ error: 'Colheita não encontrada.' });
+    if (!isMongoReady()) harvest.status = request.body.status;
+    const serialized = serializeHarvest(harvest);
+    io.emit('harvest:statusChanged', serialized);
+    response.json(serialized);
+  } catch (error) {
+    next(error);
+  }
+});
+app.patch('/harvest/:id', requireAuth, requirePermission('manage_harvests'), async (request, response, next) => {
+  try {
+    if (!isMongoReady()) return response.status(503).json({ error: 'Edição persistente indisponível sem MongoDB.' });
+    const current = await Harvest.findOne({ id: request.params.id }).lean();
+    if (!current) return response.status(404).json({ error: 'Colheita não encontrada.' });
+    const updates = {};
+    for (const field of ['crop', 'category', 'unit', 'notes']) {
+      if (request.body[field] !== undefined) updates[field] = String(request.body[field]).trim();
+    }
+    if (request.body.status !== undefined) {
+      const allowed = ['planned', 'growing', 'ready', 'available', 'cancelled'];
+      if (!allowed.includes(request.body.status)) return response.status(422).json({ error: 'Status de colheita inválido.' });
+      updates.status = request.body.status;
+      updates.available = ['ready', 'available'].includes(request.body.status);
+    }
+    if (request.body.plantingDate !== undefined) {
+      const date = new Date(request.body.plantingDate);
+      if (Number.isNaN(date.getTime())) return response.status(422).json({ error: 'Data de plantio inválida.' });
+      updates.plantingDate = date;
+    }
+    if (request.body.harvestDate !== undefined) {
+      const date = new Date(request.body.harvestDate);
+      if (Number.isNaN(date.getTime())) return response.status(422).json({ error: 'Data de colheita inválida.' });
+      updates.harvestDate = date;
+    }
+    const effectivePlantingDate = updates.plantingDate || current.plantingDate;
+    const effectiveHarvestDate = updates.harvestDate || current.harvestDate;
+    const dateError = validateHarvestDates(effectivePlantingDate, effectiveHarvestDate);
+    if (dateError) return response.status(422).json({ error: dateError });
+    if (request.body.quantity !== undefined) {
+      const quantity = Number(request.body.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) return response.status(422).json({ error: 'A quantidade deve ser maior que zero.' });
+      const committed = (current.reservedQuantity || 0) + (current.deliveredQuantity || 0);
+      if (quantity < committed) return response.status(409).json({ error: 'A quantidade não pode ser menor que o estoque já reservado ou entregue.' });
+      updates.quantity = quantity;
+      updates.availableQuantity = quantity - committed;
+    }
+    const harvest = await Harvest.findOneAndUpdate({ id: request.params.id }, { $set: updates }, { new: true });
+    if (!harvest) return response.status(404).json({ error: 'Colheita não encontrada.' });
+    await AuditLog.create({
+      actorUserId: request.user._id,
+      action: 'harvest.updated',
+      targetUserId: request.user._id,
+      metadata: { harvestId: harvest.id, fields: Object.keys(updates) },
+      ip: request.ip,
+    });
+    io.emit('harvest:updated', serializeHarvest(harvest));
+    response.json(serializeHarvest(harvest));
+  } catch (error) {
+    next(error);
+  }
+});
+app.delete('/harvest/:id', requireAuth, requirePermission('manage_harvests'), async (request, response, next) => {
+  try {
+    if (!isMongoReady()) return response.status(503).json({ error: 'Exclusão persistente indisponível sem MongoDB.' });
+    const harvest = await Harvest.findOne({ id: request.params.id });
+    if (!harvest) return response.status(404).json({ error: 'Colheita não encontrada.' });
+    const activeReservation = await Reservation.exists({ harvestCode: harvest.id, status: 'active' });
+    if (activeReservation) return response.status(409).json({ error: 'Não é possível excluir uma colheita com reservas ativas.' });
+    await harvest.deleteOne();
+    await AuditLog.create({
+      actorUserId: request.user._id,
+      action: 'harvest.deleted',
       targetUserId: request.user._id,
       metadata: { harvestId: harvest.id },
       ip: request.ip,
     });
-    return response.json(serializeHarvest(harvest));
+    io.emit('harvest:updated', { id: harvest.id, status: 'deleted' });
+    response.status(204).send();
+  } catch (error) {
+    next(error);
   }
+});
+app.put('/harvest/:id/reserve', requireAuth, requirePermission('reserve_harvest'), async (request, response, next) => {
+  try {
+    const quantity = parsePositiveQuantity(request.body.quantity);
+    if (!quantity) return response.status(422).json({ error: 'Informe uma quantidade inteira maior que zero.' });
+    if (!isMongoReady()) {
+      const harvest = demoHarvests.find((item) => item.id === request.params.id);
+      if (!harvest) return response.status(404).json({ error: 'Colheita não encontrada.' });
+      if ((harvest.availableQuantity ?? harvest.quantity) < quantity) return response.status(409).json({ error: 'Quantidade indisponível.' });
+      harvest.availableQuantity = (harvest.availableQuantity ?? harvest.quantity) - quantity;
+      harvest.reservedQuantity = (harvest.reservedQuantity || 0) + quantity;
+      harvest.available = harvest.availableQuantity > 0;
+      harvest.status = harvest.available ? 'available' : 'reserved';
+      harvest.reservedByUserId = request.user._id.toString();
+      harvest.reservedAt = new Date().toISOString();
+      io.emit('reservation:created', serializeHarvest(harvest));
+      return response.json(serializeHarvest(harvest));
+    }
+    const existingReservation = await Reservation.findOne({
+      harvestCode: request.params.id,
+      userId: request.user._id,
+      status: 'active',
+    }).lean();
+    if (existingReservation) return response.status(409).json({ error: 'Você já possui uma reserva ativa para esta colheita. Cancele-a antes de fazer uma nova.' });
+    const sourceHarvest = await Harvest.findOne({ id: request.params.id, status: { $in: ['ready', 'available'] } }).lean();
+    if (!sourceHarvest) return response.status(404).json({ error: 'Colheita não encontrada ou indisponível.' });
+    let reservation;
+    try {
+      reservation = await Reservation.create({
+        harvestId: sourceHarvest._id,
+        harvestCode: sourceHarvest.id,
+        userId: request.user._id,
+        quantity,
+      });
+    } catch (error) {
+      if (error?.code === 11000) return response.status(409).json({ error: 'Você já possui uma reserva ativa para esta colheita.' });
+      throw error;
+    }
+    const harvest = await Harvest.findOneAndUpdate(
+      { _id: sourceHarvest._id, availableQuantity: { $gte: quantity } },
+      { $inc: { availableQuantity: -quantity, reservedQuantity: quantity }, $set: { status: 'available', available: true } },
+      { new: true },
+    );
+    if (!harvest) {
+      await Reservation.deleteOne({ _id: reservation._id });
+      return response.status(409).json({ error: 'Quantidade indisponível.' });
+    }
+    await AuditLog.create({
+      actorUserId: request.user._id,
+      action: 'harvest.reserved',
+      targetUserId: request.user._id,
+      metadata: { harvestId: harvest.id, reservationId: reservation._id.toString(), quantity },
+      ip: request.ip,
+    });
+    const serialized = { ...serializeHarvest(harvest), reservationId: reservation._id.toString(), reservationQuantity: quantity };
+    io.emit('reservation:created', serialized);
+    response.json(serialized);
+  } catch (error) {
+    next(error);
+  }
+});
+app.put('/harvest/:id/cancel-reservation', requireAuth, requirePermission('reserve_harvest'), async (request, response, next) => {
+  try {
+    if (!isMongoReady()) {
+      const harvest = demoHarvests.find((item) => item.id === request.params.id && item.reservedByUserId?.toString() === request.user._id.toString());
+      if (!harvest) return response.status(404).json({ error: 'Reserva não encontrada.' });
+      harvest.availableQuantity = (harvest.availableQuantity || 0) + (harvest.reservedQuantity || 1);
+      harvest.reservedQuantity = 0;
+      harvest.available = true;
+      harvest.status = 'available';
+      delete harvest.reservedByUserId;
+      return response.json(serializeHarvest(harvest));
+    }
+    const reservation = await Reservation.findOneAndUpdate(
+      { harvestCode: request.params.id, userId: request.user._id, status: 'active' },
+      { $set: { status: 'cancelled', cancelledAt: new Date() } },
+      { new: true },
+    );
+    if (!reservation) return response.status(404).json({ error: 'Reserva não encontrada.' });
+    const harvest = await Harvest.findOneAndUpdate(
+      { id: request.params.id },
+      { $inc: { availableQuantity: reservation.quantity, reservedQuantity: -reservation.quantity }, $set: { available: true, status: 'available' } },
+      { new: true },
+    );
+    await AuditLog.create({
+      actorUserId: request.user._id,
+      action: 'harvest.reservation_cancelled',
+      targetUserId: request.user._id,
+      metadata: { harvestId: request.params.id, reservationId: reservation._id.toString() },
+      ip: request.ip,
+    });
+    io.emit('reservation:cancelled', { harvestId: request.params.id, reservationId: reservation._id.toString() });
+    response.json(serializeHarvest(harvest));
+  } catch (error) {
+    next(error);
+  }
+});
 
-  const harvest = demoHarvests.find(
-    (item) =>
-      item.id === request.params.id &&
-      item.reservedByUserId?.toString() === request.user._id.toString(),
-  );
-  if (!harvest) return response.status(404).json({ error: 'Reserva não encontrada.' });
-  harvest.available = true;
-  delete harvest.reservedBy;
-  delete harvest.reservedByUserId;
-  delete harvest.reservedAt;
-  response.json(serializeHarvest(harvest));
+app.get('/reservations', requireAuth, requirePermission('manage_reservations'), async (request, response, next) => {
+  try {
+    if (!isMongoReady()) return response.json({ reservations: [] });
+    const status = request.query.status || 'active';
+    const filter = status === 'all'
+      ? {}
+      : { status: status === 'history' ? { $in: ['cancelled', 'delivered', 'expired'] } : status };
+    const reservations = await Reservation.find(filter)
+      .populate('harvestId', 'id crop harvestDate unit')
+      .populate('userId', 'fullName email')
+      .sort({ reservedAt: -1 })
+      .lean();
+    response.json({ reservations });
+  } catch (error) {
+    next(error);
+  }
+});
+app.patch('/reservations/:id/status', requireAuth, requirePermission('manage_reservations'), async (request, response, next) => {
+  try {
+    if (!['delivered', 'cancelled'].includes(request.body.status)) return response.status(422).json({ error: 'Status de reserva inválido.' });
+    const reservation = await Reservation.findOne({ _id: request.params.id, status: 'active' });
+    if (!reservation) return response.status(404).json({ error: 'Reserva ativa não encontrada.' });
+    reservation.status = request.body.status;
+    reservation.deliveredAt = request.body.status === 'delivered' ? new Date() : undefined;
+    reservation.cancelledAt = request.body.status === 'cancelled' ? new Date() : undefined;
+    await reservation.save();
+    if (request.body.status === 'delivered') {
+      await Harvest.findByIdAndUpdate(reservation.harvestId, { $inc: { reservedQuantity: -reservation.quantity, deliveredQuantity: reservation.quantity }, $set: { status: 'delivered' } });
+    } else {
+      await Harvest.findByIdAndUpdate(reservation.harvestId, { $inc: { reservedQuantity: -reservation.quantity, availableQuantity: reservation.quantity }, $set: { available: true, status: 'available' } });
+    }
+    await AuditLog.create({
+      actorUserId: request.user._id,
+      action: `reservation.${request.body.status}`,
+      targetUserId: reservation.userId,
+      metadata: { reservationId: reservation._id.toString(), quantity: reservation.quantity },
+      ip: request.ip,
+    });
+    io.emit(`reservation:${request.body.status}`, { reservationId: reservation._id.toString(), harvestId: reservation.harvestCode });
+    response.json({ reservation });
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/harvest/dashboard', requireAuth, requirePermission('view_harvests'), async (_request, response, next) => {
+  try {
+    if (!isMongoReady()) return response.json({ totals: { harvests: demoHarvests.length, produced: demoHarvests.reduce((sum, item) => sum + item.quantity, 0), available: demoHarvests.reduce((sum, item) => sum + (item.availableQuantity ?? item.quantity), 0), reserved: 0, delivered: 0 } });
+    const [totals] = await Harvest.aggregate([{ $group: { _id: null, harvests: { $sum: 1 }, produced: { $sum: '$quantity' }, available: { $sum: '$availableQuantity' }, reserved: { $sum: '$reservedQuantity' }, delivered: { $sum: '$deliveredQuantity' } } }]);
+    response.json({ totals: totals || { harvests: 0, produced: 0, available: 0, reserved: 0, delivered: 0 } });
+  } catch (error) {
+    next(error);
+  }
 });
 
 async function connectIntegrations() {
@@ -279,6 +589,20 @@ async function connectIntegrations() {
       console.log('MongoDB indisponível; usando memória');
       return;
     }
+    await Harvest.updateMany(
+      { availableQuantity: { $exists: false } },
+      [
+        {
+          $set: {
+            availableQuantity: { $cond: ['$available', '$quantity', 0] },
+            reservedQuantity: { $cond: ['$available', 0, '$quantity'] },
+            deliveredQuantity: 0,
+            status: { $cond: ['$available', 'available', 'reserved'] },
+          },
+        },
+      ],
+    );
+    await normalizeActiveReservations();
     await seedHarvests();
     await seedInitialAdmin();
     console.log('MongoDB conectado');
