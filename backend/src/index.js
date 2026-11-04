@@ -34,6 +34,11 @@ let latestTelemetry = {
   timestamp: new Date().toISOString(),
 };
 const telemetryHistory = [latestTelemetry];
+const telemetryPersistIntervalMs = Math.max(
+  1000,
+  Number(process.env.TELEMETRY_PERSIST_INTERVAL_MS || 10000),
+);
+let lastPersistedTelemetryAt = 0;
 const demoHarvests = [
   {
     id: 'harvest-1',
@@ -138,6 +143,105 @@ app.get('/status', requireAuth, (_request, response) =>
 app.get('/telemetry/history', requireAuth, (_request, response) =>
   response.json(telemetryHistory.slice(-100).reverse()),
 );
+function numericStatistics(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  if (!sorted.length) return null;
+  const mean = values.reduce((total, value) => total + value, 0) / values.length;
+  const middle = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+  const variance = values.reduce((total, value) => total + ((value - mean) ** 2), 0) / values.length;
+  return {
+    average: Number(mean.toFixed(2)),
+    median: Number(median.toFixed(2)),
+    minimum: Number(sorted[0].toFixed(2)),
+    maximum: Number(sorted[sorted.length - 1].toFixed(2)),
+    standardDeviation: Number(Math.sqrt(variance).toFixed(2)),
+  };
+}
+
+function calculateHealthScore(latest, metrics) {
+  if (!latest || !metrics.soilMoisture || !metrics.temperature || !metrics.humidity) return null;
+  const soilScore = Math.max(0, 100 - Math.abs(60 - latest.soilMoisture) * 2.5);
+  const temperatureScore = Math.max(0, 100 - Math.abs(25 - latest.temperature) * 8);
+  const humidityScore = Math.max(0, 100 - Math.abs(65 - latest.humidity) * 2);
+  return Math.round((soilScore * 0.4) + (temperatureScore * 0.3) + (humidityScore * 0.3));
+}
+
+app.get('/analytics/summary', requireAuth, requirePermission('view_telemetry'), async (request, response, next) => {
+  try {
+    const allowedRanges = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30 };
+    const range = allowedRanges[request.query.range] ? request.query.range : '24h';
+    const from = new Date(Date.now() - allowedRanges[range] * 60 * 60 * 1000);
+    if (!isMongoReady()) {
+      return response.json({
+        range,
+        from: from.toISOString(),
+        to: new Date().toISOString(),
+        samples: 0,
+        sampling: { configuredIntervalMs: telemetryPersistIntervalMs, averageIntervalMs: null },
+        metrics: { soilMoisture: null, temperature: null, humidity: null },
+        series: [],
+        health: null,
+        criticalMinutes: 0,
+        irrigation: { cycles: 0, activeMinutes: 0 },
+      });
+    }
+    const readings = await Telemetry.find({ timestamp: { $gte: from } })
+      .sort({ timestamp: 1 })
+      .limit(10000)
+      .lean();
+    const values = {
+      soilMoisture: readings.map((item) => item.soilMoisture),
+      temperature: readings.map((item) => item.temperature),
+      humidity: readings.map((item) => item.humidity),
+    };
+    let criticalMinutes = 0;
+    let irrigationCycles = 0;
+    let irrigationActiveMinutes = 0;
+    let previous = null;
+    for (const reading of readings) {
+      if (previous) {
+        const minutes = Math.min(15, Math.max(0, new Date(reading.timestamp).getTime() - new Date(previous.timestamp).getTime()) / 60000);
+        if (previous.soilMoisture < 40 || previous.temperature > 35 || previous.humidity < 50) criticalMinutes += minutes;
+        if (reading.irrigationOn && !previous.irrigationOn) irrigationCycles += 1;
+        if (previous.irrigationOn) irrigationActiveMinutes += minutes;
+      }
+      previous = reading;
+    }
+    const intervals = readings.slice(1).map((item, index) => new Date(item.timestamp).getTime() - new Date(readings[index].timestamp).getTime()).filter((value) => value > 0);
+    const series = readings.filter((_item, index) => index % Math.max(1, Math.ceil(readings.length / 120)) === 0).map((item) => ({
+      timestamp: item.timestamp,
+      soilMoisture: item.soilMoisture,
+      temperature: item.temperature,
+      humidity: item.humidity,
+      irrigationOn: Boolean(item.irrigationOn),
+    }));
+    const metrics = {
+      soilMoisture: numericStatistics(values.soilMoisture),
+      temperature: numericStatistics(values.temperature),
+      humidity: numericStatistics(values.humidity),
+    };
+    response.json({
+      range,
+      from: from.toISOString(),
+      to: new Date().toISOString(),
+      samples: readings.length,
+      sampling: {
+        configuredIntervalMs: telemetryPersistIntervalMs,
+        averageIntervalMs: intervals.length ? Math.round(intervals.reduce((sum, value) => sum + value, 0) / intervals.length) : null,
+      },
+      metrics,
+      series,
+      health: calculateHealthScore(readings.at(-1), metrics),
+      criticalMinutes: Math.round(criticalMinutes),
+      irrigation: { cycles: irrigationCycles, activeMinutes: Math.round(irrigationActiveMinutes) },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 app.post('/irrigation', requireAuth, requirePermission('control_irrigation'), async (request, response) => {
   const { action, mode = 'manual' } = request.body;
   if (!['on', 'off', 'auto'].includes(action))
@@ -660,7 +764,13 @@ async function connectIntegrations() {
         telemetryHistory.push(latestTelemetry);
         io.emit('telemetry:update', latestTelemetry);
         emitStatus();
-        if (mongoose.connection.readyState === 1) {
+        const telemetryTime = new Date(latestTelemetry.timestamp).getTime();
+        if (
+          mongoose.connection.readyState === 1
+          && Number.isFinite(telemetryTime)
+          && (telemetryTime - lastPersistedTelemetryAt >= telemetryPersistIntervalMs)
+        ) {
+          lastPersistedTelemetryAt = telemetryTime;
           Telemetry.create(latestTelemetry).catch(() =>
             console.error('Falha ao salvar telemetria'),
           );

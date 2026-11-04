@@ -934,6 +934,158 @@ nav {
 .harvest-list {
   margin-top: 18px;
 }
+.analytics-page {
+  display: grid;
+  gap: 18px;
+}
+.analytics-toolbar,
+.analytics-actions,
+.analytics-legend,
+.analytics-table-head,
+.analytics-table-row,
+.sampling-row {
+  display: flex;
+  align-items: center;
+}
+.analytics-toolbar {
+  justify-content: space-between;
+  gap: 16px;
+}
+.analytics-toolbar h2,
+.analytics-toolbar p {
+  margin: 0;
+}
+.analytics-toolbar h2 {
+  color: #315d3b;
+  font-size: 20px;
+}
+.analytics-toolbar p {
+  margin-top: 4px;
+  color: #7e8d82;
+  font-size: 13px;
+}
+.analytics-actions {
+  gap: 10px;
+}
+.analytics-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.analytics-kpi {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid #e3ebe1;
+  border-radius: 14px;
+  background: #fbfdfb;
+}
+.analytics-kpi span {
+  color: #7e8d82;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+}
+.analytics-kpi strong {
+  color: #315d3b;
+  font-size: 27px;
+}
+.analytics-kpi strong small {
+  font-size: 14px;
+}
+.analytics-kpi em {
+  color: #7e8d82;
+  font-size: 11px;
+  font-style: normal;
+}
+.analytics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 18px;
+}
+.analytics-chart-panel,
+.analytics-sampling-panel,
+.analytics-table-panel {
+  min-width: 0;
+}
+.analytics-chart {
+  height: 280px;
+  margin-top: 8px;
+}
+.analytics-legend {
+  flex-wrap: wrap;
+  gap: 16px;
+  color: #7e8d82;
+  font-size: 11px;
+}
+.analytics-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 50%;
+}
+.analytics-dot.soil { background: #3f7a4b; }
+.analytics-dot.air { background: #6b9db2; }
+.analytics-dot.temperature { background: #c88952; }
+.sampling-value {
+  padding: 14px 0 18px;
+}
+.sampling-value strong {
+  display: block;
+  color: #315d3b;
+  font-size: 34px;
+}
+.sampling-value span {
+  color: #7e8d82;
+  font-size: 12px;
+}
+.sampling-row {
+  justify-content: space-between;
+  padding: 11px 0;
+  border-top: 1px solid #edf0ed;
+  color: #66756a;
+  font-size: 12px;
+}
+.sampling-row strong {
+  color: #315d3b;
+}
+.sampling-note {
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: 9px;
+  background: #f1f7f0;
+  color: #64806a;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.analytics-table {
+  overflow-x: auto;
+}
+.analytics-table-head,
+.analytics-table-row {
+  min-width: 620px;
+  display: grid;
+  grid-template-columns: minmax(150px, 1.5fr) repeat(5, minmax(76px, 1fr));
+  gap: 10px;
+  align-items: center;
+}
+.analytics-table-head {
+  padding: 10px 0;
+  color: #7e8d82;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.analytics-table-row {
+  padding: 13px 0;
+  border-top: 1px solid #edf0ed;
+  color: #526158;
+  font-size: 12px;
+}
+.analytics-table-row strong {
+  color: #315d3b;
+}
 .harvest-calendar {
   margin-top: 18px;
   padding: 16px;
@@ -1090,6 +1242,15 @@ nav {
   font-size: 11px;
 }
 @media (max-width: 760px) {
+  .analytics-toolbar,
+  .analytics-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .analytics-kpis,
+  .analytics-grid {
+    grid-template-columns: 1fr;
+  }
   .harvest-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
