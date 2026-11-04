@@ -140,8 +140,8 @@ export const requestPasswordRecovery = (email: string) =>
     body: JSON.stringify({ email }),
   });
 
-export const getTelemetryHistory = () =>
-  requestApi<Telemetry[]>('/telemetry/history');
+export const getTelemetryHistory = (hours = 24, limit = 36) =>
+  requestApi<Telemetry[]>(`/telemetry/history?hours=${hours}&limit=${limit}`);
 
 export const getHarvests = () => requestApi<Harvest[]>('/harvest');
 

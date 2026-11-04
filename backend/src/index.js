@@ -140,9 +140,23 @@ app.use('/users', usersRouter);
 app.get('/status', requireAuth, (_request, response) =>
   response.json(getStatus()),
 );
-app.get('/telemetry/history', requireAuth, (_request, response) =>
-  response.json(telemetryHistory.slice(-100).reverse()),
-);
+app.get('/telemetry/history', requireAuth, async (request, response, next) => {
+  try {
+    const limit = Math.min(120, Math.max(12, Number(request.query.limit) || 36));
+    const hours = Math.min(168, Math.max(1, Number(request.query.hours) || 24));
+    if (!isMongoReady()) {
+      return response.json(telemetryHistory.slice(-limit).reverse());
+    }
+    const from = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const readings = await Telemetry.find({ timestamp: { $gte: from } })
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .lean();
+    response.json(readings.reverse());
+  } catch (error) {
+    next(error);
+  }
+});
 function numericStatistics(values) {
   const sorted = [...values].sort((left, right) => left - right);
   if (!sorted.length) return null;

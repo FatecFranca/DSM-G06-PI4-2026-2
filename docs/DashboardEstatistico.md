@@ -1417,6 +1417,21 @@ a armazenar todos os eventos recebidos. O intervalo deve ser calibrado com
 testes: para uma demonstração, 10 segundos é adequado; para operação contínua,
 intervalos maiores podem reduzir custo e volume sem perder tendências.
 
+## Dashboard resumido no mobile
+
+A `StatusScreen` apresenta um resumo operacional para moradores e voluntários,
+sem exigir a permissão administrativa `view_telemetry`. Ao abrir a tela, o app
+carrega até 36 leituras das últimas 24 horas pelo endpoint autenticado
+`/telemetry/history`. Novas leituras recebidas em `telemetry:update` são
+adicionadas à série local, com deduplicação por timestamp e limite de 36 pontos.
+
+O gráfico principal mostra a umidade do solo, a faixa de histerese de 40% a 60%
+(liga abaixo de 40% e desliga acima de 60%) e uma tendência simples (subindo,
+descendo ou estável). A implementação usa
+`react-native-gifted-charts`, escolhida por ser adequada ao gráfico temporal
+compacto do mobile e por manter a experiência mais leve que um dashboard
+analítico completo.
+
 ## Limites da primeira versão
 
 Ainda não fazem parte do primeiro painel:
@@ -1425,7 +1440,6 @@ Ainda não fazem parte do primeiro painel:
 - previsão da próxima irrigação;
 - histograma de distribuição;
 - relatórios exportáveis;
-- dashboard analítico no mobile;
 - alertas e notificações push;
 - histórico detalhado de ciclos de irrigação com início e fim independentes.
 
