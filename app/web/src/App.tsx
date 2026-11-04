@@ -98,6 +98,30 @@ type Status = Telemetry & {
   };
 };
 
+type AnalyticsMetric = {
+  average: number;
+  median: number;
+  minimum: number;
+  maximum: number;
+  standardDeviation: number;
+};
+type AnalyticsSummary = {
+  range: '24h' | '7d' | '30d';
+  from: string;
+  to: string;
+  samples: number;
+  sampling: { configuredIntervalMs: number; averageIntervalMs: number | null };
+  metrics: {
+    soilMoisture: AnalyticsMetric | null;
+    temperature: AnalyticsMetric | null;
+    humidity: AnalyticsMetric | null;
+  };
+  series: Array<Telemetry & { irrigationOn?: boolean }>;
+  health: number | null;
+  criticalMinutes: number;
+  irrigation: { cycles: number; activeMinutes: number };
+};
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 type User = {
   id: string;
@@ -205,6 +229,7 @@ function userStatusLabel(status: string) {
 
 const navigationItems = [
   { label: 'Visão geral', Icon: LayoutDashboard },
+  { label: 'Analítico', Icon: LayoutDashboard, permission: 'view_telemetry' },
   { label: 'Irrigação', Icon: Droplets },
   { label: 'Colheitas', Icon: Sprout },
   { label: 'Minhas reservas', Icon: Sprout, permission: 'view_harvests' },
@@ -262,6 +287,9 @@ function App() {
     'all',
   );
   const [historyRange, setHistoryRange] = useState('24');
+  const [analyticsRange, setAnalyticsRange] = useState<'24h' | '7d' | '30d'>('24h');
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [socketConnected, setSocketConnected] = useState(false);
@@ -390,6 +418,23 @@ function App() {
       setLoading(false);
     }
 
+  }
+
+  async function loadAnalytics() {
+    if (!session?.token) return;
+    setAnalyticsLoading(true);
+    try {
+      const nextAnalytics = await requestApi<AnalyticsSummary>(
+        `/analytics/summary?range=${analyticsRange}`,
+        undefined,
+        session.token,
+      );
+      setAnalytics(nextAnalytics);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Falha ao carregar o painel analítico.');
+    } finally {
+      setAnalyticsLoading(false);
+    }
   }
 
   async function loadCalendar() {
@@ -863,7 +908,8 @@ function App() {
       void loadUserStats();
     }
     if (activeSection === 'Auditoria') void loadAuditLogs();
-  }, [activeSection, canManageUsers, session, userStatusFilter, userRoleFilter]);
+    if (activeSection === 'Analítico') void loadAnalytics();
+  }, [activeSection, canManageUsers, session, userStatusFilter, userRoleFilter, analyticsRange]);
 
   if (!session) {
     return (
@@ -1277,6 +1323,8 @@ function App() {
                   ? 'Cadastre, acompanhe e reserve alimentos da horta.'
                   : activeSection === 'Histórico'
                     ? 'Acompanhe a evolução da umidade do solo.'
+                    : activeSection === 'Analítico'
+                      ? 'Transforme a telemetria histórica em indicadores para decisão.'
                     : activeSection === 'Irrigação'
                       ? 'Controle o sistema e acompanhe o estado atual.'
                       : 'Aqui está o que está acontecendo na horta hoje.'}
@@ -1294,7 +1342,76 @@ function App() {
               </button>
             )}
           </div>
-          {activeSection === 'Meu perfil' ? (
+          {activeSection === 'Analítico' ? (
+            <section className="analytics-page">
+              <div className="analytics-toolbar">
+                <div>
+                  <h2>Painel analítico</h2>
+                  <p>Dados persistidos no MongoDB · atualização sob demanda</p>
+                </div>
+                <div className="analytics-actions">
+                  <select className="select-button" value={analyticsRange} onChange={(event) => setAnalyticsRange(event.target.value as '24h' | '7d' | '30d')} aria-label="Período analítico">
+                    <option value="24h">Últimas 24 horas</option>
+                    <option value="7d">Últimos 7 dias</option>
+                    <option value="30d">Últimos 30 dias</option>
+                  </select>
+                  <button className="text-button" onClick={() => void loadAnalytics()}>Atualizar</button>
+                </div>
+              </div>
+              {analyticsLoading && <div className="loading-state">Calculando indicadores...</div>}
+              {!analyticsLoading && analytics && (
+                <>
+                  <div className="analytics-kpis">
+                    <div className="analytics-kpi"><span>SAÚDE DA HORTA</span><strong>{analytics.health ?? '--'}<small>/100</small></strong><em>{analytics.health === null ? 'Sem dados' : analytics.health >= 80 ? 'Excelente' : analytics.health >= 60 ? 'Boa' : analytics.health >= 40 ? 'Atenção' : 'Crítica'}</em></div>
+                    <div className="analytics-kpi"><span>LEITURAS ANALISADAS</span><strong>{analytics.samples}</strong><em>Registros persistidos</em></div>
+                    <div className="analytics-kpi"><span>IRRIGAÇÕES</span><strong>{analytics.irrigation.cycles}</strong><em>{analytics.irrigation.activeMinutes} min em funcionamento</em></div>
+                    <div className="analytics-kpi"><span>CONDIÇÃO CRÍTICA</span><strong>{Math.floor(analytics.criticalMinutes / 60)}h {analytics.criticalMinutes % 60}min</strong><em>Solo, temperatura ou ar</em></div>
+                  </div>
+                  <div className="analytics-grid">
+                    <section className="panel analytics-chart-panel">
+                      <div className="panel-heading"><div><h2>Evolução dos sensores</h2><p>Leituras amostradas no período selecionado</p></div><span className="status-pill healthy">{analytics.samples} registros</span></div>
+                      <div className="analytics-chart">
+                        <ResponsiveContainer width="100%" height={280}>
+                          <LineChart data={analytics.series.map((item) => ({ ...item, label: new Date(item.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) }))} margin={{ top: 12, right: 12, bottom: 4, left: 0 }}>
+                            <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
+                            <XAxis dataKey="label" tick={{ fill: '#aab3ac', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <YAxis domain={[0, 100]} tick={{ fill: '#aab3ac', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <Tooltip formatter={(value, name) => [`${Number(value).toFixed(1)}${name === 'temperature' ? ' °C' : '%'}`, name === 'soilMoisture' ? 'Solo' : name === 'humidity' ? 'Ar' : 'Temperatura']} contentStyle={{ border: '1px solid #e4e9e2', borderRadius: 8, fontSize: 11 }} />
+                            <Line type="monotone" dataKey="soilMoisture" name="soilMoisture" stroke="#3f7a4b" strokeWidth={2.5} dot={false} />
+                            <Line type="monotone" dataKey="humidity" name="humidity" stroke="#6b9db2" strokeWidth={2} dot={false} />
+                            <Line type="monotone" dataKey="temperature" name="temperature" stroke="#c88952" strokeWidth={2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="analytics-legend"><span><i className="analytics-dot soil"></i> Umidade do solo</span><span><i className="analytics-dot air"></i> Umidade do ar</span><span><i className="analytics-dot temperature"></i> Temperatura</span></div>
+                    </section>
+                    <section className="panel analytics-sampling-panel">
+                      <div className="panel-heading"><div><h2>Qualidade da coleta</h2><p>Frequência efetiva de persistência</p></div></div>
+                      <div className="sampling-value"><strong>{analytics.sampling.averageIntervalMs ? `${Math.round(analytics.sampling.averageIntervalMs / 1000)}s` : '--'}</strong><span>intervalo médio entre leituras</span></div>
+                      <div className="sampling-row"><span>Configuração atual</span><strong>{Math.round(analytics.sampling.configuredIntervalMs / 1000)}s</strong></div>
+                      <div className="sampling-row"><span>Amostras no período</span><strong>{analytics.samples}</strong></div>
+                      <div className="sampling-note">A frequência deve ser calibrada conforme o teste de utilidade dos gráficos e o volume de armazenamento.</div>
+                    </section>
+                  </div>
+                  <section className="panel analytics-table-panel">
+                    <div className="panel-heading"><div><h2>Resumo estatístico</h2><p>Média, extremos e dispersão das leituras persistidas</p></div></div>
+                    <div className="analytics-table">
+                      <div className="analytics-table-head"><span>Indicador</span><span>Média</span><span>Mediana</span><span>Mínimo</span><span>Máximo</span><span>Desvio</span></div>
+                      {[
+                        ['Umidade do solo', analytics.metrics.soilMoisture, '%'],
+                        ['Umidade do ar', analytics.metrics.humidity, '%'],
+                        ['Temperatura', analytics.metrics.temperature, '°C'],
+                      ].map(([label, metric, unit]) => {
+                        const values = metric as AnalyticsMetric | null;
+                        return <div className="analytics-table-row" key={label as string}><strong>{label as string}</strong><span>{values ? `${values.average}${unit}` : '--'}</span><span>{values ? `${values.median}${unit}` : '--'}</span><span>{values ? `${values.minimum}${unit}` : '--'}</span><span>{values ? `${values.maximum}${unit}` : '--'}</span><span>{values ? `${values.standardDeviation}${unit}` : '--'}</span></div>;
+                      })}
+                    </div>
+                  </section>
+                </>
+              )}
+              {!analyticsLoading && !analytics && <div className="empty-state">Não foi possível gerar indicadores para este período.</div>}
+            </section>
+          ) : activeSection === 'Meu perfil' ? (
             <section className="panel profile-panel">
               <div className="panel-heading"><div><h2>Meu perfil</h2><p>Atualize seus dados pessoais e sua senha.</p></div></div>
               {profileMessage && (
@@ -1485,7 +1602,7 @@ function App() {
             </section>
           ) : null}
           <div
-            className={`alert-banner ${activeSection === 'Colheitas' || activeSection === 'Histórico' ? 'section-hidden' : ''}`}
+            className={`alert-banner ${activeSection === 'Colheitas' || activeSection === 'Histórico' || activeSection === 'Analítico' ? 'section-hidden' : ''}`}
           >
             <span className="alert-icon">
               <TriangleAlert size={14} strokeWidth={2} />
@@ -1559,7 +1676,7 @@ function App() {
             </div>
           </div>
           <div
-            className={`dashboard-grid ${activeSection === 'Colheitas' ? 'section-hidden' : ''}`}
+            className={`dashboard-grid ${activeSection === 'Colheitas' || activeSection === 'Analítico' ? 'section-hidden' : ''}`}
           >
             <section
               className={`panel chart-panel ${activeSection !== 'Visão geral' && activeSection !== 'Histórico' ? 'section-hidden' : ''}`}

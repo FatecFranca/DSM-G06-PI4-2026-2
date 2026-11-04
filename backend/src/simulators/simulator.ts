@@ -44,5 +44,5 @@ client.on('connect', () => {
     if (data.humidity < LIMITS.humidityMin) {
       console.log('⚠️ Umidade do ar baixa detectada!');
     }
-  }, 10000);
+  }, Number(process.env.SIMULATOR_TELEMETRY_INTERVAL_MS || 10000));
 });

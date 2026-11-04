@@ -1355,3 +1355,134 @@ Backend
 ```
 
 Os cálculos estatísticos devem ser executados no Backend. O Web e o Mobile devem apenas consumir os indicadores já processados através das APIs Analytics e exibir os resultados utilizando bibliotecas gráficas apropriadas.
+
+---
+
+# Implementação atual — Painel Analítico
+
+A primeira versão do Painel Analítico foi implementada no Web para usuários com
+a permissão `view_telemetry`. Ela mantém a mesma identidade visual do painel
+operacional e reutiliza o padrão de gráficos Recharts já usado em Visão geral e
+Histórico.
+
+## Funcionalidades entregues
+
+- seleção dos períodos de 24 horas, 7 dias e 30 dias;
+- total de leituras persistidas no MongoDB;
+- índice de saúde da horta de 0 a 100;
+- tempo acumulado em condição crítica;
+- quantidade de ciclos e minutos de irrigação;
+- gráfico temporal de umidade do solo, umidade do ar e temperatura;
+- média, mediana, mínimo, máximo e desvio padrão de cada variável;
+- intervalo configurado e intervalo médio real entre amostras;
+- amostragem da série para manter o gráfico leve sem alterar os dados originais.
+
+O painel não calcula estatísticas complexas no navegador. O Web consome o
+resultado pronto do endpoint:
+
+```text
+GET /analytics/summary?range=24h
+GET /analytics/summary?range=7d
+GET /analytics/summary?range=30d
+```
+
+O endpoint consulta a coleção `telemetries`, calcula os indicadores e retorna
+uma série reduzida para visualização. As leituras completas continuam
+persistidas no MongoDB.
+
+## Persistência e frequência das leituras
+
+Há duas frequências diferentes no sistema:
+
+1. **Transmissão/realtime**: cada mensagem MQTT válida atualiza o estado atual,
+   o histórico em memória e o evento Socket.IO `telemetry:update`.
+2. **Persistência analítica**: o backend grava no MongoDB no máximo uma leitura a
+   cada intervalo configurado por `TELEMETRY_PERSIST_INTERVAL_MS`.
+
+O valor padrão é 10 segundos:
+
+```text
+TELEMETRY_PERSIST_INTERVAL_MS=10000
+```
+
+O simulador também usa 10 segundos por padrão e pode ser ajustado
+independentemente:
+
+```text
+SIMULATOR_TELEMETRY_INTERVAL_MS=10000
+```
+
+Essa separação permite manter a demonstração em tempo real sem obrigar o banco
+a armazenar todos os eventos recebidos. O intervalo deve ser calibrado com
+testes: para uma demonstração, 10 segundos é adequado; para operação contínua,
+intervalos maiores podem reduzir custo e volume sem perder tendências.
+
+## Limites da primeira versão
+
+Ainda não fazem parte do primeiro painel:
+
+- correlação de Pearson;
+- previsão da próxima irrigação;
+- histograma de distribuição;
+- relatórios exportáveis;
+- dashboard analítico no mobile;
+- alertas e notificações push;
+- histórico detalhado de ciclos de irrigação com início e fim independentes.
+
+Esses recursos devem ser adicionados somente após validar a qualidade, a
+frequência e o volume dos dados persistidos.
+
+Implementado a primeira versão do Painel Analítico na branch dashboard-statistics.
+
+Funcionalidades
+Nova página web Analítico.
+Filtros:
+Últimas 24 horas;
+Últimos 7 dias;
+Últimos 30 dias.
+KPIs:
+Índice de saúde da horta;
+Leituras analisadas;
+Ciclos de irrigação;
+Tempo em condição crítica.
+Gráfico Recharts com:
+Umidade do solo;
+Umidade do ar;
+Temperatura.
+Estatísticas:
+Média;
+Mediana;
+Mínimo;
+Máximo;
+Desvio padrão.
+Indicadores de qualidade da coleta:
+Intervalo configurado;
+Intervalo médio real;
+Quantidade de amostras.
+Backend
+Nova API protegida:
+
+Os cálculos são feitos no backend usando dados do MongoDB.
+
+Frequência de coleta
+Foi separada a frequência de:
+
+Atualização realtime via Socket.IO;
+Persistência analítica no MongoDB.
+Configuração padrão:
+
+O realtime continua recebendo todas as mensagens, mas o MongoDB grava respeitando o intervalo mínimo configurado.
+
+Arquivos principais
+App.tsx
+App.css
+backend/src/index.js
+Telemetry.js
+DashboardEstatistico.md
+Validação
+Build web aprovado.
+Sintaxe do backend aprovada.
+Containers reconstruídos.
+MongoDB possui telemetrias persistidas.
+Backend e web respondendo corretamente.
+git diff --check aprovado.
