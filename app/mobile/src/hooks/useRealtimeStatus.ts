@@ -5,6 +5,7 @@ import type { HortaStatus, Telemetry } from '../types/api';
 
 export function useRealtimeStatus() {
   const [status, setStatus] = useState<HortaStatus | null>(null);
+  const [latestTelemetry, setLatestTelemetry] = useState<Telemetry | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
 
@@ -31,6 +32,7 @@ export function useRealtimeStatus() {
       setError('');
     });
     socket.on('telemetry:update', (telemetry: Telemetry) => {
+      setLatestTelemetry(telemetry);
       setStatus((current) =>
         current
           ? { ...current, ...telemetry }
@@ -44,5 +46,5 @@ export function useRealtimeStatus() {
     };
   }, []);
 
-  return { status, connected, error, setStatus, setError };
+  return { status, connected, error, latestTelemetry, setStatus, setError };
 }

@@ -12,7 +12,9 @@ O sistema atual implementa o fluxo principal:
 - O painel web e o app mobile consomem o mesmo estado da horta e permitem controlar a irrigação.
 - A irrigação pode ser acionada manualmente ou devolvida ao modo automático.
 
-A implementação está direcionada para demonstração funcional e validação do fluxo operacional real, e não para autenticação/usuários ainda.
+A implementação contempla autenticação, perfis de usuário, gestão de colheitas,
+telemetria persistida e dashboards operacionais e analíticos. O projeto continua
+adequado para demonstração funcional e validação do fluxo operacional real.
 
 ## Arquitetura
 
@@ -25,7 +27,7 @@ flowchart LR
   web -->|POST /irrigation| backend
   mobile -->|POST /irrigation| backend
   backend -->|horta/irrigation| mqtt
-  backend --> mongo[(MongoDB, quando disponível)]
+  backend --> mongo[(MongoDB)]
 ```
 
 ## Funcionalidades implementadas
@@ -37,17 +39,25 @@ O backend em `backend/src/index.js` implementa:
 - `GET /health`: health check do serviço.
 - `GET /status`: retorna o último estado da horta com telemetria e irrigação.
 - `GET /telemetry/history`: histórico recente de telemetria.
+- `GET /analytics/summary?range=24h|7d|30d`: resumo analítico protegido por
+  permissão, com KPIs, estatísticas e série temporal.
 - `POST /irrigation`: aceita `on`, `off` e `auto`.
 - `GET /harvest`: lista colheitas disponíveis.
 - `POST /harvest`: cria nova colheita.
+- `PATCH /harvest/:id`: edita uma colheita.
+- `PATCH /harvest/:id/status`: altera o status de uma colheita.
 - `PUT /harvest/:id/reserve`: reserva uma colheita.
+- `GET /harvest/mine`: lista as reservas do usuário autenticado.
+- `PUT /harvest/:id/cancel-reservation`: cancela uma reserva própria.
 
 O servidor também:
 
 - recebe mensagens MQTT em `horta/telemetry` e `horta/irrigation`;
 - atualiza o estado em memória em tempo real;
 - emite eventos `status:update` e `telemetry:update` por Socket.IO;
-- salva telemetria no MongoDB quando `MONGO_URI` está disponível;
+- persiste as leituras no MongoDB respeitando `TELEMETRY_PERSIST_INTERVAL_MS`;
+- mantém o realtime independente da persistência, emitindo cada leitura válida por
+  Socket.IO;
 - usa fallback em memória quando o banco não está acessível.
 
 ### Painel web
@@ -58,6 +68,12 @@ O frontend em `app/web/src/App.tsx` implementa:
 - gráfico de umidade/temperatura/umidade relativa;
 - controle manual de irrigação (`on`, `off` e `auto`);
 - histórico recente de telemetria;
+- página **Analítico**, com períodos de 24 horas, 7 dias e 30 dias;
+- KPIs de saúde da horta, amostras, irrigação e condição crítica;
+- gráfico temporal e estatísticas descritivas de solo, temperatura e umidade do ar;
+- indicadores da frequência configurada e do intervalo real entre leituras;
+- gestão de usuários, aprovação de cadastros, papéis e auditoria;
+- gestão de colheitas, reservas, entregas, cancelamentos e calendário;
 - cadastro e reserva de colheitas;
 - atualização em tempo real via Socket.IO.
 
@@ -71,7 +87,11 @@ O app em `app/mobile` usa Expo + React Native e contém as telas:
 - `Irrigação`
 - `Colheitas`
 
-As telas usam a mesma API e os mesmos conceitos do painel web, com botões para ligar/desligar a irrigação e registrar reservas de colheitas.
+Na tela `Status`, o app exibe os indicadores atuais e um gráfico resumido de
+umidade do solo. O histórico é carregado do MongoDB pela API e novas leituras
+chegam em tempo real por Socket.IO, com faixa de histerese de 40% a 60%.
+As telas usam a mesma API e os mesmos conceitos do painel web, com botões para
+ligar/desligar a irrigação e registrar reservas de colheitas.
 
 ### IoT / firmware
 
@@ -84,6 +104,7 @@ Ele:
 - publica telemetria em `horta/telemetry`;
 - escuta comandos em `horta/irrigation`;
 - usa lógica de irrigação automática baseada em limiar de umidade do solo;
+- aplica histerese: liga abaixo de 40% e desliga acima de 60%;
 - aceita override manual via comando MQTT.
 
 O código do firmware define a estrutura básica do fluxo de integração, e o backend aceita o mesmo conjunto de comandos e payloads esperados pela camada IoT.
@@ -292,6 +313,8 @@ MQTT_BROKER=mqtt://localhost:1883
 MQTT_TELEMETRY_TOPIC=horta/telemetry
 MQTT_IRRIGATION_TOPIC=horta/irrigation
 MONGO_URI=mongodb://localhost:27017/horta-comunitaria
+TELEMETRY_PERSIST_INTERVAL_MS=10000
+SIMULATOR_TELEMETRY_INTERVAL_MS=10000
 JWT_SECRET=gere-uma-chave-aleatoria-com-pelo-menos-32-caracteres
 JWT_EXPIRES_IN=8h
 
@@ -303,6 +326,10 @@ ADMIN_PASSWORD=troque-esta-senha-por-uma-forte
 
 Se `MONGO_URI` não estiver disponível, o backend continua operando em modo de
 demonstração com dados em memória.
+
+`TELEMETRY_PERSIST_INTERVAL_MS` limita a frequência de gravação no MongoDB,
+enquanto `SIMULATOR_TELEMETRY_INTERVAL_MS` controla a frequência de publicação
+do simulador. O realtime continua transmitindo cada leitura válida.
 
 As variáveis `JWT_SECRET` e `ADMIN_*` são necessárias para a autenticação e para
 criar o primeiro administrador nas próximas etapas. Não use os valores de
@@ -440,6 +467,8 @@ Exemplo:
   "soilMoisture": 42,
   "temperature": 26.4,
   "humidity": 68.1,
+  "irrigationOn": false,
+  "mode": "automatic",
   "timestamp": "2026-09-28T12:00:00.000Z"
 }
 ```
@@ -464,11 +493,21 @@ A ação `auto` retorna a irrigação ao controle automático, enquanto `on` e `
 GET    /health
 GET    /status
 GET    /telemetry/history
+GET    /analytics/summary?range=24h
+GET    /analytics/summary?range=7d
+GET    /analytics/summary?range=30d
 POST   /irrigation
 GET    /harvest
 POST   /harvest
+PATCH  /harvest/:id
+PATCH  /harvest/:id/status
 PUT    /harvest/:id/reserve
+GET    /harvest/mine
+PUT    /harvest/:id/cancel-reservation
 ```
+
+As rotas protegidas exigem autenticação. O resumo analítico exige também a
+permissão `view_telemetry`.
 
 Exemplo de comando de irrigação:
 
@@ -481,39 +520,40 @@ curl -X POST http://localhost:3000/irrigation \
 ## Fluxo de funcionamento
 
 1. O sensor publica dados em MQTT.
-2. O backend recebe o payload e atualiza o estado atual.
-3. O backend expõe `/status` e `/telemetry/history`.
+2. O backend recebe o payload, atualiza o estado atual e emite
+   `telemetry:update` por Socket.IO.
+3. O backend persiste leituras no MongoDB conforme o intervalo configurado.
 4. O painel web e o mobile renderizam o estado atualizado.
-5. Quando um usuário ativa a irrigação pela interface, a API publica um comando no tópico MQTT e atualiza o estado em tempo real.
+5. O painel Analítico consulta o histórico persistido e calcula os indicadores.
+6. Quando um usuário ativa a irrigação pela interface, a API publica um comando
+   no tópico MQTT e atualiza o estado em tempo real.
 
 ## Observações importantes
 
-- O projeto ainda prioriza a camada funcional de IoT e automação sobre autenticação e perfis de usuário.
+- A autenticação e o controle de permissões são aplicados no backend e também
+  orientam a navegação do painel web.
 - Em ausência de MongoDB, a API funciona com estado em memória e dados demo.
 - O backend continua emitindo eventos realtime via Socket.IO mesmo sem banco conectado.
-- O painel web e o mobile refletem o mesmo estado do backend e não dependem de polling manual para atualizar a tela principal.
+- O painel web e o mobile refletem o mesmo estado do backend e não dependem de
+  polling manual para atualizar a tela principal.
 
 ## Roadmap prático
 
 Próximas evoluções típicas para a continuidade do projeto:
 
-- autenticação e perfis de usuário;
-- persistência mais robusta de colheitas e reservas;
-- testes automatizados de API e MQTT;
-- melhorias de observabilidade e alertas;
-- refinamento da lógica de irrigação e validação de hardware em bancada.
+- correlação, previsão e relatórios exportáveis no dashboard analítico;
+- alertas e notificações push;
+- testes automatizados de API, MQTT e fluxos de autenticação;
+- melhorias de observabilidade;
+- histórico detalhado de ciclos de irrigação e validação de hardware em bancada.
 
 O que está no repositório hoje é a base operacional da horta conectada: sensores, backend, painel, mobile e integração MQTT funcionando como um fluxo coerente.
 
 1. Validar Docker, MQTT e MongoDB.
-2. Integrar o web com a API.
-3. Persistir colheitas e reservas.
-4. Configurar o mobile.
-5. Validar e proteger o firmware.
-6. Adicionar autenticação.
-7. Automatizar testes e operação.
-
-A primeira entrega funcional deve ser: **telemetria real aparecendo no web e comando de irrigação chegando ao ESP32**. Esse é o menor fluxo que comprova que o sistema completo está realmente integrado.
+2. Configurar o painel web e o app mobile.
+3. Iniciar o simulador Wokwi ou conectar o ESP32 físico.
+4. Validar telemetria, irrigação e atualização realtime.
+5. Criar usuários e testar as permissões de cada papel.
 
 ## Documentação técnica
 
