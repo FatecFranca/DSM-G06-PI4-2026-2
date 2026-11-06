@@ -1,18 +1,19 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import type { PropsWithChildren } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { colors } from '../styles/theme';
+import { useTheme, colors } from '../styles/theme';
 
 export function HortaBackground({ children }: PropsWithChildren) {
+  const { colors, mode } = useTheme();
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={['#f7fbf2', '#e7f2e0', '#dcefeb']}
+        colors={mode === 'dark' ? ['#101812', '#17291d', '#16313a'] : ['#f7fbf2', '#e7f2e0', '#dcefeb']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <View style={[styles.sun, styles.decorative]} />
+      <View style={[styles.sun, styles.decorative, mode === 'dark' && { opacity: 0.08 }]} />
       <View style={[styles.leaf, styles.leafOne, styles.decorative]} />
       <View style={[styles.leaf, styles.leafTwo, styles.decorative]} />
       <View style={[styles.waterRing, styles.decorative]} />

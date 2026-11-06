@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { login, register, requestPasswordRecovery, saveAuthToken } from '../services/api';
-import { colors, spacing } from '../styles/theme';
+import { useTheme, spacing, type ThemeColors } from '../styles/theme';
 
 type Props = { onAuthenticated: () => void };
 type Mode = 'welcome' | 'login' | 'register' | 'forgot';
@@ -25,6 +25,8 @@ const roleOptions: { value: Role; label: string; description: string }[] = [
 ];
 
 export function AuthScreen({ onAuthenticated }: Props) {
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
   const [mode, setMode] = useState<Mode>('welcome');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -185,11 +187,14 @@ export function AuthScreen({ onAuthenticated }: Props) {
 }
 
 function Feature({ icon, title, text }: { icon: keyof typeof Ionicons.glyphMap; title: string; text: string }) {
-  return <View style={styles.feature}><Ionicons name={icon} size={22} color={colors.green} /><Text style={styles.featureTitle}>{title}</Text><Text style={styles.featureText}>{text}</Text></View>;
+  const { colors } = useTheme();
+  return <View style={createStyles(colors).feature}><Ionicons name={icon} size={22} color={colors.green} /><Text style={createStyles(colors).featureTitle}>{title}</Text><Text style={createStyles(colors).featureText}>{text}</Text></View>;
 }
 
 function Field(props: ComponentProps<typeof TextInput> & { label: string }) {
   const { label, ...inputProps } = props;
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
   return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput {...inputProps} style={styles.input} placeholderTextColor={colors.muted} /></View>;
 }
 
@@ -200,7 +205,8 @@ function toApiDate(value: string) {
     : value;
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   screen: { backgroundColor: colors.background, flex: 1 },
   content: { padding: spacing.lg, paddingBottom: 42, paddingTop: 54 },
   brandRow: { alignItems: 'center', flexDirection: 'row', marginBottom: 34 },
@@ -238,4 +244,5 @@ const styles = StyleSheet.create({
   formHint: { color: colors.muted, fontSize: 11, lineHeight: 16, marginVertical: 14 },
   switchButton: { alignItems: 'center', marginTop: 18, padding: 6 },
   switchText: { color: colors.green, fontSize: 13, fontWeight: '700' },
-});
+  });
+}

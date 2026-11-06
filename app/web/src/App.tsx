@@ -240,6 +240,9 @@ const navigationItems = [
 ];
 
 function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (
+    localStorage.getItem('horta-theme') !== 'light' ? 'dark' : 'light'
+  ));
   const [session, setSession] = useState<AuthSession | null>(() => {
     try {
       return JSON.parse(localStorage.getItem('horta-session') || 'null');
@@ -913,8 +916,8 @@ function App() {
 
   if (!session) {
     return (
-      <div className="auth-shell">
-        <form className="auth-card" onSubmit={showForgotPassword ? (resetToken ? resetPasswordRequest : requestPasswordRecovery) : showRegistration ? register : login}>
+      <div className={`auth-shell theme-${theme}`}>
+        <form className={`auth-card ${showRegistration ? 'registration-card' : ''}`} onSubmit={showForgotPassword ? (resetToken ? resetPasswordRequest : requestPasswordRecovery) : showRegistration ? register : login}>
           <div className="brand">
             <span className="brand-mark"><Leaf size={18} strokeWidth={2.2} /></span>
             <span>Horta<br /><strong>Comunitária</strong></span>
@@ -1211,7 +1214,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell theme-${theme}`}>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">
@@ -1268,6 +1271,19 @@ function App() {
             Horta Norte <span>/</span> <strong>{activeSection}</strong>
           </div>
           <div className="top-actions">
+            <button
+              className="theme-switch"
+              onClick={() => {
+                const nextTheme = theme === 'light' ? 'dark' : 'light';
+                setTheme(nextTheme);
+                localStorage.setItem('horta-theme', nextTheme);
+              }}
+              aria-label={`Ativar tema ${theme === 'light' ? 'escuro' : 'claro'}`}
+              title={`Tema ${theme === 'light' ? 'escuro' : 'claro'}`}
+            >
+              <span className={theme === 'light' ? 'selected' : ''}>☀</span>
+              <span className={theme === 'dark' ? 'selected' : ''}>◐</span>
+            </button>
             <button className="icon-button" aria-label="Notificações">
               <Bell size={17} strokeWidth={1.8} />
               <i></i>
@@ -1373,17 +1389,23 @@ function App() {
                       <div className="analytics-chart">
                         <ResponsiveContainer width="100%" height={280}>
                           <LineChart data={analytics.series.map((item) => ({ ...item, label: new Date(item.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) }))} margin={{ top: 12, right: 12, bottom: 4, left: 0 }}>
-                            <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
-                            <XAxis dataKey="label" tick={{ fill: '#aab3ac', fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis domain={[0, 100]} tick={{ fill: '#aab3ac', fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <Tooltip formatter={(value, name) => [`${Number(value).toFixed(1)}${name === 'temperature' ? ' °C' : '%'}`, name === 'soilMoisture' ? 'Solo' : name === 'humidity' ? 'Ar' : 'Temperatura']} contentStyle={{ border: '1px solid #e4e9e2', borderRadius: 8, fontSize: 11 }} />
-                            <Line type="monotone" dataKey="soilMoisture" name="soilMoisture" stroke="#3f7a4b" strokeWidth={2.5} dot={false} />
-                            <Line type="monotone" dataKey="humidity" name="humidity" stroke="#6b9db2" strokeWidth={2} dot={false} />
-                            <Line type="monotone" dataKey="temperature" name="temperature" stroke="#c88952" strokeWidth={2} dot={false} />
+                            <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+                            <ReferenceArea
+                              y1={40}
+                              y2={60}
+                              fill="var(--chart-band)"
+                              fillOpacity={0.12}
+                            />
+                            <XAxis dataKey="label" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <YAxis domain={[0, 100]} tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <Tooltip formatter={(value, name) => [`${Number(value).toFixed(1)}${name === 'temperature' ? ' °C' : '%'}`, name === 'soilMoisture' ? 'Solo' : name === 'humidity' ? 'Ar' : 'Temperatura']} contentStyle={{ background: 'var(--chart-tooltip-bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 11 }} />
+                            <Line type="monotone" dataKey="soilMoisture" name="soilMoisture" stroke="var(--chart-soil)" strokeWidth={2.5} dot={false} />
+                            <Line type="monotone" dataKey="humidity" name="humidity" stroke="var(--chart-air)" strokeWidth={2} dot={false} />
+                            <Line type="monotone" dataKey="temperature" name="temperature" stroke="var(--chart-temperature)" strokeWidth={2} dot={false} />
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
-                      <div className="analytics-legend"><span><i className="analytics-dot soil"></i> Umidade do solo</span><span><i className="analytics-dot air"></i> Umidade do ar</span><span><i className="analytics-dot temperature"></i> Temperatura</span></div>
+                      <div className="analytics-legend"><span><i className="analytics-dot soil"></i> Umidade do solo</span><span><i className="analytics-dot air"></i> Umidade do ar</span><span><i className="analytics-dot temperature"></i> Temperatura</span><span><i className="analytics-dot band"></i> Histerese: 40% - 60%</span></div>
                     </section>
                     <section className="panel analytics-sampling-panel">
                       <div className="panel-heading"><div><h2>Qualidade da coleta</h2><p>Frequência efetiva de persistência</p></div></div>
@@ -1642,7 +1664,7 @@ function App() {
                 {latestTelemetry?.soilMoisture ?? '--'}
                 <small>%</small>
               </div>
-              <div className="stat-foot">Ideal entre 50% e 70%</div>
+              <div className="stat-foot">Histerese entre 40% e 60%</div>
             </div>
             <div className="stat-card">
               <div className="stat-top">
@@ -1706,23 +1728,23 @@ function App() {
                       role="img"
                       aria-label="Gráfico de umidade do solo"
                     >
-                      <CartesianGrid stroke="#e8ede7" strokeDasharray="3 3" />
+                      <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
                       <ReferenceArea
-                        y1={50}
-                        y2={70}
-                        fill="#7cae7f"
+                        y1={40}
+                        y2={60}
+                        fill="var(--chart-band)"
                         fillOpacity={0.12}
                       />
                       <XAxis
                         dataKey="label"
-                        tick={{ fill: '#aab3ac', fontSize: 9 }}
+                        tick={{ fill: 'var(--chart-axis)', fontSize: 9 }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <YAxis
                         domain={[0, 100]}
                         ticks={[0, 20, 40, 60, 80, 100]}
-                        tick={{ fill: '#aab3ac', fontSize: 9 }}
+                        tick={{ fill: 'var(--chart-axis)', fontSize: 9 }}
                         axisLine={false}
                         tickLine={false}
                         tickFormatter={(value) => `${value}%`}
@@ -1731,7 +1753,9 @@ function App() {
                       <Tooltip
                         formatter={(value) => [`${value}%`, 'Umidade']}
                         contentStyle={{
-                          border: '1px solid #e4e9e2',
+                          background: 'var(--chart-tooltip-bg)',
+                          color: 'var(--ink)',
+                          border: '1px solid var(--line)',
                           borderRadius: 6,
                           fontSize: 11,
                         }}
@@ -1739,10 +1763,10 @@ function App() {
                       <Line
                         type="monotone"
                         dataKey="soilMoisture"
-                        stroke="#3f7a4b"
+                        stroke="var(--chart-soil)"
                         strokeWidth={3}
                         dot={false}
-                        activeDot={{ r: 4, fill: '#3f7a4b' }}
+                        activeDot={{ r: 4, fill: 'var(--chart-soil)' }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -1753,7 +1777,7 @@ function App() {
                   <i className="legend-dot"></i> Umidade registrada
                 </span>
                 <span>
-                  <i className="legend-line"></i> Faixa ideal: 50% - 70%
+                  <i className="legend-line"></i> Histerese: 40% - 60%
                 </span>
               </div>
             </section>
