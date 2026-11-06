@@ -9,7 +9,7 @@ import { MetricCard } from '../components/MetricCard';
 import { useRealtimeStatus } from '../hooks/useRealtimeStatus';
 import { getTelemetryHistory } from '../services/api';
 import type { Telemetry } from '../types/api';
-import { colors, spacing } from '../styles/theme';
+import { useTheme, spacing, type ThemeColors } from '../styles/theme';
 
 const HISTORY_LIMIT = 36;
 const chartWidth = Math.max(
@@ -18,6 +18,8 @@ const chartWidth = Math.max(
 );
 
 export function StatusScreen() {
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
   const { status, connected, error, latestTelemetry } = useRealtimeStatus();
   const [history, setHistory] = useState<Telemetry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -181,21 +183,22 @@ export function StatusScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   safeArea: { flex: 1 },
   content: { padding: spacing.lg, paddingBottom: 40 },
   kicker: { color: colors.muted, fontSize: 10, letterSpacing: 1.4 },
   title: { color: colors.ink, fontSize: 31, fontWeight: '800', marginTop: 8, marginBottom: spacing.lg },
-  hero: { alignItems: 'center', backgroundColor: 'rgba(229,243,223,0.92)', borderRadius: 26, padding: 26 },
+  hero: { alignItems: 'center', backgroundColor: colors.mint, borderRadius: 26, padding: 26 },
   heroIcon: { alignItems: 'center', backgroundColor: colors.white, borderRadius: 24, height: 48, justifyContent: 'center', width: 48 },
   heroValue: { color: colors.ink, fontSize: 56, fontWeight: '800', marginTop: 10 },
   heroLabel: { color: colors.muted, fontSize: 14 },
   heroStatus: { color: colors.green, fontSize: 13, fontWeight: '700', marginTop: 17 },
   metrics: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-  note: { backgroundColor: 'rgba(255,255,255,0.75)', borderColor: colors.border, borderRadius: 18, borderWidth: 1, marginTop: spacing.md, padding: spacing.md },
+  note: { backgroundColor: colors.mint, borderColor: colors.border, borderRadius: 18, borderWidth: 1, marginTop: spacing.md, padding: spacing.md },
   noteTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
   noteText: { color: colors.muted, fontSize: 13, marginTop: 5 },
-  chartCard: { backgroundColor: 'rgba(255,255,255,0.86)', borderColor: colors.border, borderRadius: 18, borderWidth: 1, marginTop: spacing.md, overflow: 'hidden', padding: spacing.md },
+  chartCard: { backgroundColor: colors.mint, borderColor: colors.border, borderRadius: 18, borderWidth: 1, marginTop: spacing.md, overflow: 'hidden', padding: spacing.md },
   chartHeader: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
   chartPlot: { paddingTop: spacing.sm },
   chartTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
@@ -206,4 +209,5 @@ const styles = StyleSheet.create({
   chartMessage: { color: colors.muted, fontSize: 13, paddingVertical: 70, textAlign: 'center' },
   axisText: { color: colors.muted, fontSize: 10 },
   trend: { color: colors.green, fontSize: 12, fontWeight: '700', marginTop: 4 },
-});
+  });
+}

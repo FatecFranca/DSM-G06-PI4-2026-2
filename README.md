@@ -425,6 +425,11 @@ npm --prefix app/web run dev
 
 Acesse `http://localhost:5173`.
 
+O painel web oferece os temas claro e escuro pelo comutador no cabeçalho. O tema
+escuro é o padrão inicial, e a preferência é salva no navegador. A identidade
+visual verde da horta é preservada, com fundos, painéis, campos e textos
+ajustados para contraste em cada tema.
+
 Para um build de produção:
 
 ```bash
@@ -453,6 +458,12 @@ EXPO_PUBLIC_API_URL=http://<SEU_IP_LOCAL>:3000
 
 O celular e o computador devem estar na mesma rede Wi-Fi. Não use `localhost`
 no dispositivo móvel; em um emulador Android, use `http://10.0.2.2:3000`.
+
+Na tela **Meu perfil**, a seção **Aparência** permite escolher entre os temas
+Claro e Escuro. O tema escuro é o padrão inicial; a preferência é persistida no
+dispositivo e aplicada às telas, à navegação inferior e à barra de status,
+mantendo a identidade visual da versão clara com melhor contraste para uso
+noturno.
 
 ## MQTT e payloads
 

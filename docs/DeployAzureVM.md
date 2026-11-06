@@ -159,8 +159,186 @@ volumes:
 
 ---
 
+## portas dos serviços
+
+```
+Do ambiente local e vai para a VM Azure, as portas internas dos serviços normalmente continuam as mesmas, mas você passa a ter uma camada adicional de exposição externa (Firewall + NSG + Reverse Proxy).
+
+Por exemplo, hoje você provavelmente tem algo parecido:
+
+LOCALHOST
+
+Frontend React -> http://localhost:3000
+Backend API -> http://localhost:5000
+MQTT Broker -> mqtt://localhost:1883
+MongoDB -> localhost:27017
+
+Na VM, eu recomendaria:
+
+VM Linux
+
+React Build -> Porta 3000
+Node API -> Porta 5000
+MQTT Broker -> Porta 1883
+MongoDB -> Porta 27017
+
+Nginx -> Porta 80
+Nginx SSL -> Porta 443
+```
+
+Fluxo:
+
+```
+Internet
+│
+▼
+porta 80 / 443
+│
+▼
+NGINX
+│
+┌───┴─────────┐
+▼ ▼
+
+React API
+3000 5000
+
+O que deve ficar público?
+Público
+80 HTTP
+443 HTTPS
+
+Somente essas portas.
+
+Privado
+1883 MQTT
+27017 MongoDB
+5000 API
+3000 Frontend
+
+Elas ficam acessíveis apenas dentro da VM.
+
+Exemplo para o projeto
+```
+
+```
+Hoje:
+
+http://localhost:3000
+
+Vira:
+
+https://hortacomunitaria.com
+
+ou
+
+https://IP_DA_VM
+
+Hoje:
+
+http://localhost:5000/api
+
+Vira:
+
+https://hortacomunitaria.com/api
+
+O Nginx encaminha para:
+
+http://localhost:5000
+
+MQTT
+
+ESP32 atualmente:
+
+mqtt_server = "localhost";
+
+ou
+
+mqtt_server = "192.168.1.xxx";
+
+Depois:
+
+mqtt_server = "SEU_IP_DA_VM";
+
+ou melhor:
+
+mqtt_server = "mqtt.hortacomunitaria.com";
+```
+
+Porta:
+
+```
+1883
+
+MongoDB
+
+Não exponha:
+
+27017
+
+para internet.
+
+Deixe:
+
+bindIp: 127.0.0.1
+
+ou
+
+bindIp: localhost
+
+para que apenas sua API Node consiga acessar o banco.
+
+Exemplo usando Docker Compose
+services:
+
+frontend:
+ports: - "3000:3000"
+
+backend:
+ports: - "5000:5000"
+
+mqtt:
+ports: - "1883:1883"
+
+mongodb:
+ports: - "27017:27017"
+
+nginx:
+ports: - "80:80" - "443:443"
+
+Externamente ficam abertas apenas:
+
+80
+443
+1883 (somente se o ESP32 acessar diretamente)
+```
+
+```
+Uma arquitetura profissional para descrever seria:
+
+ESP32
+│
+MQTT (1883)
+│
+Backend Node.js (5000)
+│
+MongoDB (27017)
+│
+Socket.IO
+│
+Aplicação Web (3000)
+Aplicação Mobile
+
+com acesso externo centralizado por:
+
+Nginx + HTTPS (443)
+
+Configuração que sera adotada para a VM Azure do projeto Horta Comunitária Conectada.
+```
+
 # Estratégia de Persistência
 
+```
 Durante a fase inicial do projeto será utilizado o MongoDB executando em container Docker na própria VM Azure.
 
 Vantagens:
@@ -180,6 +358,7 @@ Utilização do MongoDB Atlas para:
 - Backups gerenciados
 - Monitoramento avançado
 - Recuperação de desastres
+```
 
 ---
 

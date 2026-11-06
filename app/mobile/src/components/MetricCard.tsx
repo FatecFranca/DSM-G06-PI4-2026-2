@@ -1,9 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../styles/theme';
+import { useTheme, spacing, type ThemeColors } from '../styles/theme';
 
 type Props = { label: string; value: string; icon: string };
 
 export function MetricCard({ label, value, icon }: Props) {
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
   return (
     <View style={styles.card}>
       <Text style={styles.icon}>{icon}</Text>
@@ -13,9 +15,10 @@ export function MetricCard({ label, value, icon }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: colors.mint,
     borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
@@ -25,4 +28,5 @@ const styles = StyleSheet.create({
   icon: { fontSize: 18, marginBottom: 8 },
   label: { color: colors.muted, fontSize: 11 },
   value: { color: colors.ink, fontSize: 21, fontWeight: '700', marginTop: 5 },
-});
+  });
+}

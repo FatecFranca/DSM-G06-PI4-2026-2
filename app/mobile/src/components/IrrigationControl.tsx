@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { IrrigationState } from '../types/api';
-import { colors, spacing } from '../styles/theme';
+import { useTheme, spacing, type ThemeColors } from '../styles/theme';
 
 type Props = {
   irrigation: IrrigationState;
@@ -16,6 +16,8 @@ export function IrrigationControl({
   onToggle,
   onAutomatic,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
   const isManual = irrigation.mode === 'manual';
   return (
     <View style={styles.card}>
@@ -76,9 +78,10 @@ export function IrrigationControl({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: colors.mint,
     borderColor: colors.border,
     borderRadius: 24,
     borderWidth: 1,
@@ -88,18 +91,18 @@ const styles = StyleSheet.create({
   kicker: { color: colors.muted, fontSize: 10, letterSpacing: 1.2 },
   title: { color: colors.ink, fontSize: 24, fontWeight: '700', marginTop: 5 },
   badge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 },
-  manual: { backgroundColor: '#fff0d9' },
-  auto: { backgroundColor: '#e8f4e5' },
+  manual: { backgroundColor: colors.mint },
+  auto: { backgroundColor: colors.mint },
   badgeText: { color: colors.muted, fontSize: 10, fontWeight: '800' },
   visual: {
     alignItems: 'center',
-    backgroundColor: '#eef7ec',
+    backgroundColor: colors.background,
     borderRadius: 20,
     justifyContent: 'center',
     marginVertical: spacing.lg,
     minHeight: 176,
   },
-  visualActive: { backgroundColor: '#e0f2f1' },
+  visualActive: { backgroundColor: colors.water },
   state: { color: colors.muted, fontSize: 13, marginTop: 12 },
   button: {
     alignItems: 'center',
@@ -121,4 +124,5 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   autoButtonText: { color: colors.green, fontSize: 13, fontWeight: '700' },
-});
+  });
+}
