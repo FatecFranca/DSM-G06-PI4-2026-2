@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../styles/theme';
+import { useTheme, spacing, type ThemeColors } from '../styles/theme';
 
 type Props = { connected: boolean; error?: string; label?: string };
 
 export function ConnectionBanner({ connected, error, label = 'Atualização em tempo real' }: Props) {
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
   return (
     <View style={[styles.container, connected ? styles.online : styles.offline]}>
       <Ionicons
@@ -19,7 +21,8 @@ export function ConnectionBanner({ connected, error, label = 'Atualização em t
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   container: {
     alignItems: 'center',
     borderRadius: 12,
@@ -28,7 +31,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     padding: spacing.sm,
   },
-  online: { backgroundColor: '#e8f4e5' },
+  online: { backgroundColor: colors.mint },
   offline: { backgroundColor: colors.dangerBackground },
   label: { color: colors.muted, flex: 1, fontSize: 12 },
-});
+  });
+}

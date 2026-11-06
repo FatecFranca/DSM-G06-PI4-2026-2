@@ -9,12 +9,17 @@ import { IrrigationScreen } from './src/screens/IrrigationScreen';
 import { StatusScreen } from './src/screens/StatusScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
-import { colors } from './src/styles/theme';
+import { ThemeProvider, useTheme } from './src/styles/theme';
 import { clearAuthToken, restoreAuthToken, setAuthExpiredHandler } from './src/services/api';
 
 const Tab = createBottomTabNavigator();
 
 export default function App() {
+  return <ThemeProvider><ThemedApp /></ThemeProvider>;
+}
+
+function ThemedApp() {
+  const { colors, mode } = useTheme();
   const [authenticated, setAuthenticated] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
 
@@ -36,13 +41,13 @@ export default function App() {
   if (!authenticated) return <AuthScreen onAuthenticated={() => setAuthenticated(true)} />;
   return (
     <NavigationContainer>
-      <StatusBar style="dark" />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Tab.Navigator
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarActiveTintColor: colors.green,
           tabBarInactiveTintColor: colors.muted,
-          tabBarStyle: styles.tabBar,
+          tabBarStyle: { ...styles.tabBar, backgroundColor: mode === 'dark' ? '#17231b' : 'rgba(255,255,255,0.96)', borderTopColor: colors.border },
           tabBarLabelStyle: styles.tabLabel,
           tabBarIcon: ({ color, size }) => {
             const icon = route.name === 'Status'
@@ -68,6 +73,6 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  tabBar: { backgroundColor: 'rgba(255,255,255,0.96)', borderTopColor: colors.border, height: 72, paddingBottom: 8, paddingTop: 7 },
+  tabBar: { height: 72, paddingBottom: 8, paddingTop: 7 },
   tabLabel: { fontSize: 11, fontWeight: '700' },
 });

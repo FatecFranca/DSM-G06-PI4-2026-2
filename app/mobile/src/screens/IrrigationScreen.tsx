@@ -6,9 +6,11 @@ import { HortaBackground } from '../components/HortaBackground';
 import { IrrigationControl } from '../components/IrrigationControl';
 import { useRealtimeStatus } from '../hooks/useRealtimeStatus';
 import { setIrrigation } from '../services/api';
-import { colors, spacing } from '../styles/theme';
+import { useTheme, spacing, type ThemeColors } from '../styles/theme';
 
 export function IrrigationScreen() {
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
   const { status, connected, error, setStatus, setError } = useRealtimeStatus();
   const [pending, setPending] = useState(false);
 
@@ -55,11 +57,13 @@ export function IrrigationScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   safeArea: { flex: 1 },
   content: { padding: spacing.lg, paddingBottom: 40 },
   kicker: { color: colors.muted, fontSize: 10, letterSpacing: 1.4 },
   title: { color: colors.ink, fontSize: 31, fontWeight: '800', marginTop: 8, marginBottom: spacing.lg },
   loading: { color: colors.muted, fontSize: 14, paddingVertical: spacing.xl },
   helper: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: spacing.md, textAlign: 'center' },
-});
+  });
+}
