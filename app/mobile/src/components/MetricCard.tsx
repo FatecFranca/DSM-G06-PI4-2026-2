@@ -18,7 +18,7 @@ export function MetricCard({ label, value, icon }: Props) {
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
   card: {
-    backgroundColor: colors.mint,
+    backgroundColor: colors.surfaceRaised,
     borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,

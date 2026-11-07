@@ -81,7 +81,7 @@ export function IrrigationControl({
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
   card: {
-    backgroundColor: colors.mint,
+    backgroundColor: colors.surfaceRaised,
     borderColor: colors.border,
     borderRadius: 24,
     borderWidth: 1,
@@ -91,8 +91,8 @@ function createStyles(colors: ThemeColors) {
   kicker: { color: colors.muted, fontSize: 10, letterSpacing: 1.2 },
   title: { color: colors.ink, fontSize: 24, fontWeight: '700', marginTop: 5 },
   badge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 },
-  manual: { backgroundColor: colors.mint },
-  auto: { backgroundColor: colors.mint },
+  manual: { backgroundColor: colors.surfaceMuted },
+  auto: { backgroundColor: colors.surfaceMuted },
   badgeText: { color: colors.muted, fontSize: 10, fontWeight: '800' },
   visual: {
     alignItems: 'center',

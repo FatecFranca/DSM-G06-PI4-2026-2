@@ -31,7 +31,7 @@ function createStyles(colors: ThemeColors) {
     marginBottom: spacing.md,
     padding: spacing.sm,
   },
-  online: { backgroundColor: colors.mint },
+  online: { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderWidth: 1 },
   offline: { backgroundColor: colors.dangerBackground },
   label: { color: colors.muted, flex: 1, fontSize: 12 },
   });

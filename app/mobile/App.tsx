@@ -47,7 +47,7 @@ function ThemedApp() {
           headerShown: false,
           tabBarActiveTintColor: colors.green,
           tabBarInactiveTintColor: colors.muted,
-          tabBarStyle: { ...styles.tabBar, backgroundColor: mode === 'dark' ? '#17231b' : 'rgba(255,255,255,0.96)', borderTopColor: colors.border },
+          tabBarStyle: { ...styles.tabBar, backgroundColor: colors.surface, borderTopColor: colors.border },
           tabBarLabelStyle: styles.tabLabel,
           tabBarIcon: ({ color, size }) => {
             const icon = route.name === 'Status'
