@@ -520,6 +520,17 @@ PUT    /harvest/:id/cancel-reservation
 As rotas protegidas exigem autenticação. O resumo analítico exige também a
 permissão `view_telemetry`.
 
+### Swagger / OpenAPI
+
+A documentação interativa está disponível enquanto o backend estiver em
+execução:
+
+- Swagger UI: `http://localhost:3000/docs`
+- Especificação OpenAPI em JSON: `http://localhost:3000/docs/openapi.json`
+
+Use o botão **Authorize** no Swagger UI para informar um JWT no formato
+`Bearer <token>`.
+
 Exemplo de comando de irrigação:
 
 ```bash

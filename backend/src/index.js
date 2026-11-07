@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
 import mqtt from 'mqtt';
 import { Server } from 'socket.io';
+import swaggerUi from 'swagger-ui-express';
 import { Harvest } from './models/Harvest.js';
 import { Reservation } from './models/Reservation.js';
 import { AuditLog } from './models/AuditLog.js';
@@ -15,6 +16,7 @@ import { seedInitialAdmin } from './auth/bootstrap.js';
 import { authRouter } from './auth/routes.js';
 import { usersRouter } from './auth/users-routes.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
+import openapiDocument from './openapi.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -129,6 +131,10 @@ async function normalizeActiveReservations() {
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || true }));
 app.use(express.json());
+app.get('/docs/openapi.json', (_request, response) => response.json(openapiDocument));
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDocument, {
+  customSiteTitle: 'Horta Comunitária API',
+}));
 io.on('connection', (socket) => {
   socket.emit('status:update', getStatus());
 });
