@@ -11,6 +11,9 @@ import {
   Plus,
   Sprout,
   Square,
+  Sun,
+  Sunrise,
+  Moon,
   TriangleAlert,
   Users,
 } from 'lucide-react';
@@ -230,7 +233,7 @@ function userStatusLabel(status: string) {
 const navigationItems = [
   { label: 'Visão geral', Icon: LayoutDashboard },
   { label: 'Analítico', Icon: LayoutDashboard, permission: 'view_telemetry' },
-  { label: 'Irrigação', Icon: Droplets },
+  { label: 'Irrigação', Icon: Droplets, permission: 'control_irrigation' },
   { label: 'Colheitas', Icon: Sprout },
   { label: 'Minhas reservas', Icon: Sprout, permission: 'view_harvests' },
   { label: 'Histórico', Icon: History },
@@ -364,6 +367,8 @@ function App() {
   }));
   const canManageHarvests = Boolean(session?.permissions.includes('manage_harvests'));
   const canManageReservations = Boolean(session?.permissions.includes('manage_reservations'));
+  const canControlIrrigation = Boolean(session?.permissions.includes('control_irrigation'));
+  const canReserveHarvest = Boolean(session?.permissions.includes('reserve_harvest'));
   const visibleAdminReservations = adminReservations.filter((reservation) =>
     reservationView === 'active' ? reservation.status === 'active' : reservation.status !== 'active',
   );
@@ -901,6 +906,18 @@ function App() {
     };
   }, [session?.token]);
 
+  const currentHour = new Date().getHours();
+  const greetingLabel = currentHour < 12
+    ? 'Bom dia'
+    : currentHour < 18
+      ? 'Boa tarde'
+      : 'Boa noite';
+  const greetingIcon = currentHour < 12
+    ? <Sunrise aria-hidden="true" />
+    : currentHour < 18
+      ? <Sun aria-hidden="true" />
+      : <Moon aria-hidden="true" />;
+
   useEffect(() => {
     if (activeSection === 'Usuários' && !canManageUsers) {
       setActiveSection('Visão geral');
@@ -935,7 +952,7 @@ function App() {
           {showRegistration && registrationError && <div className="api-error" role="alert">{registrationError}</div>}
           {showRegistration && registrationMessage && <div className="profile-message success" role="status">{registrationMessage}</div>}
           {showRegistration ? (
-            <>
+            <div className="registration-fields">
               <label>Nome completo<input value={registrationForm.fullName} onChange={(event) => setRegistrationForm({ ...registrationForm, fullName: event.target.value })} required /></label>
               <label>E-mail<input type="email" value={registrationForm.email} onChange={(event) => setRegistrationForm({ ...registrationForm, email: event.target.value })} required /></label>
               <label>CPF<input value={registrationForm.cpf} onChange={(event) => setRegistrationForm({ ...registrationForm, cpf: event.target.value })} required /></label>
@@ -956,7 +973,7 @@ function App() {
               <label>Data de nascimento<input type="date" value={registrationForm.birthDate} onChange={(event) => setRegistrationForm({ ...registrationForm, birthDate: event.target.value })} required /></label>
               <label>Endereço<input value={registrationForm.address} onChange={(event) => setRegistrationForm({ ...registrationForm, address: event.target.value })} required /></label>
               <label>Contato de emergência<input value={registrationForm.emergencyContact} onChange={(event) => setRegistrationForm({ ...registrationForm, emergencyContact: event.target.value })} required /></label>
-            </>
+            </div>
           ) : showForgotPassword ? (
             resetToken ? (
               <>
@@ -1008,6 +1025,7 @@ function App() {
   }
 
   async function toggleIrrigation() {
+    if (!canControlIrrigation) return;
     setIrrigationPending(true);
     try {
       const nextStatus = await requestApi<{ irrigation: Status['irrigation'] }>(
@@ -1033,6 +1051,7 @@ function App() {
   }
 
   async function resumeAutomatic() {
+    if (!canControlIrrigation) return;
     setIrrigationPending(true);
     try {
       const nextStatus = await requestApi<{ irrigation: Status['irrigation'] }>(
@@ -1056,7 +1075,7 @@ function App() {
   }
 
   async function reserveHarvest(harvest: Harvest) {
-    if (!harvest.id || !harvest.available) return;
+    if (!canReserveHarvest || !harvest.id || !harvest.available) return;
     const quantity = Number(reservationQuantities[harvest.id] || 1);
     if (!Number.isInteger(quantity) || quantity < 1) {
       setRequestError('Informe uma quantidade inteira maior que zero.');
@@ -1328,9 +1347,17 @@ function App() {
                 {activeSection === 'Usuários'
                   ? 'Gestão de usuários'
                   : activeSection === 'Visão geral'
-                  ? `Bom dia, ${session.user.fullName.split(' ')[0]}`
+                  ? `${greetingLabel}, ${session.user.fullName.split(' ')[0]}`
                   : activeSection}
-                {activeSection === 'Visão geral' && <span>☀</span>}
+                {activeSection === 'Visão geral' && (
+                  <span
+                    className={`greeting-icon greeting-icon-${currentHour < 12 ? 'morning' : currentHour < 18 ? 'afternoon' : 'night'}`}
+                    title={currentHour < 12 ? 'Manhã' : currentHour < 18 ? 'Tarde' : 'Noite'}
+                    aria-label={currentHour < 12 ? 'Manhã' : currentHour < 18 ? 'Tarde' : 'Noite'}
+                  >
+                    {greetingIcon}
+                  </span>
+                )}
               </h1>
               <p className="subheading">
                 {activeSection === 'Usuários'
@@ -1810,21 +1837,25 @@ function App() {
                 <strong>{statusLabel}</strong>
                 <span>Último ciclo: hoje, 06:15 · 8 min</span>
               </div>
-              <button
-                className={
-                  irrigationOn ? 'irrigation-button stop' : 'irrigation-button'
-                }
-                onClick={toggleIrrigation}
-                disabled={irrigationPending || !status}
-              >
-                {irrigationOn ? <Square size={12} /> : <Play size={12} />}
-                {irrigationPending
-                  ? 'Enviando comando...'
-                  : irrigationOn
-                    ? 'Desligar irrigação'
-                    : 'Ligar irrigação'}
-              </button>
-              {status?.irrigation.mode === 'manual' && (
+              {canControlIrrigation ? (
+                <button
+                  className={
+                    irrigationOn ? 'irrigation-button stop' : 'irrigation-button'
+                  }
+                  onClick={toggleIrrigation}
+                  disabled={irrigationPending || !status}
+                >
+                  {irrigationOn ? <Square size={12} /> : <Play size={12} />}
+                  {irrigationPending
+                    ? 'Enviando comando...'
+                    : irrigationOn
+                      ? 'Desligar irrigação'
+                      : 'Ligar irrigação'}
+                </button>
+              ) : (
+                <p className="permission-note">Seu perfil pode acompanhar o estado, mas não controlar a irrigação.</p>
+              )}
+              {canControlIrrigation && status?.irrigation.mode === 'manual' && (
                 <button
                   className="text-button automatic-button"
                   onClick={resumeAutomatic}
@@ -1948,7 +1979,7 @@ function App() {
                       <button className="text-button danger-text" onClick={() => void deleteHarvest(harvest)}>Excluir</button>
                     </div>
                   )}
-                  {!canManageHarvests && activeSection === 'Colheitas' && harvest.available && (
+                  {!canManageHarvests && canReserveHarvest && activeSection === 'Colheitas' && harvest.available && (
                     <>
                       <input
                         className="quantity-input"

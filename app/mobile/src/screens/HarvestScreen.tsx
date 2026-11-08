@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { HortaBackground } from '../components/HortaBackground';
-import { cancelReservation, getHarvestCalendar, getHarvests, getMyReservations, reserveHarvest } from '../services/api';
+import { cancelReservation, getCurrentUser, getHarvestCalendar, getHarvests, getMyReservations, reserveHarvest } from '../services/api';
 import { createRealtimeSocket } from '../services/realtimeService';
 import type { Harvest, HarvestCalendarEvent } from '../types/api';
 import { useTheme, spacing, type ThemeColors } from '../styles/theme';
@@ -22,20 +22,23 @@ export function HarvestScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [canReserve, setCanReserve] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const from = new Date();
       const to = new Date(from.getTime() + 60 * 24 * 60 * 60 * 1000);
-      const [nextHarvests, nextReservations, calendar] = await Promise.all([
+      const [nextHarvests, nextReservations, calendar, currentUser] = await Promise.all([
         getHarvests(),
         getMyReservations(),
         getHarvestCalendar(from.toISOString(), to.toISOString()),
+        getCurrentUser(),
       ]);
       setHarvests(nextHarvests);
       setReservations(nextReservations);
       setUpcomingEvents(calendar.events.filter((event) => event.type === 'harvest').slice(0, 4));
+      setCanReserve(currentUser.permissions.includes('reserve_harvest'));
       setError('');
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Não foi possível carregar as colheitas.');
@@ -136,7 +139,7 @@ export function HarvestScreen() {
                 <Text style={mode === 'available' ? styles.available : styles.reserved}>{mode === 'available' ? 'Disponível' : 'Reservada'}</Text>
               </View>
               <Text style={styles.quantity}>{mode === 'mine' ? `Quantidade reservada: ${harvest.reservationQuantity || harvest.reservedQuantity || 1}` : `${harvest.availableQuantity ?? harvest.quantity} ${harvest.unit || 'unidade'} disponíveis`}</Text>
-              {mode === 'available' ? (
+              {mode === 'available' && canReserve ? (
                 <View style={styles.reserveRow}>
                   <TextInput
                     value={quantities[harvest.id] ?? ''}
@@ -148,7 +151,7 @@ export function HarvestScreen() {
                   />
                   <Pressable style={styles.button} disabled={pendingId === harvest.id} onPress={() => void reserve(harvest)}><Text style={styles.buttonText}>{pendingId === harvest.id ? '...' : 'Reservar'}</Text></Pressable>
                 </View>
-              ) : <Pressable style={styles.cancelButton} disabled={pendingId === harvest.id} onPress={() => void cancel(harvest)}><Text style={styles.cancelText}>{pendingId === harvest.id ? 'Cancelando...' : 'Cancelar reserva'}</Text></Pressable>}
+              ) : mode === 'mine' ? <Pressable style={styles.cancelButton} disabled={pendingId === harvest.id} onPress={() => void cancel(harvest)}><Text style={styles.cancelText}>{pendingId === harvest.id ? 'Cancelando...' : 'Cancelar reserva'}</Text></Pressable> : <Text style={styles.muted}>Seu perfil não possui permissão para reservar.</Text>}
             </View>
           ))}
         </ScrollView>
