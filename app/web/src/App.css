@@ -530,7 +530,9 @@ nav {
   backdrop-filter: blur(12px);
 }
 .registration-card {
-  width: min(100%, 560px);
+  width: min(100%, 760px);
+  max-height: calc(100vh - 32px);
+  padding: 28px 32px;
 }
 .auth-card .brand {
   margin: 0 0 34px;
@@ -590,6 +592,25 @@ nav {
   margin-top: 24px;
   width: 100%;
   justify-content: center;
+}
+.registration-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+.registration-fields label:nth-child(1),
+.registration-fields label:nth-child(2),
+.registration-fields label:nth-child(5),
+.registration-fields label:nth-child(6),
+.registration-fields label:nth-child(9),
+.registration-fields label:nth-child(10) {
+  grid-column: span 2;
+}
+.registration-card > .profile-message.success {
+  position: sticky;
+  top: -28px;
+  z-index: 1;
+  box-shadow: 0 4px 12px rgba(36, 53, 43, 0.08);
 }
 .theme-dark .auth-card {
   background: rgba(23, 35, 27, 0.95);
@@ -756,6 +777,24 @@ nav {
   .profile-form {
     grid-template-columns: 1fr;
   }
+  .registration-card {
+    max-height: calc(100vh - 24px);
+    padding: 24px 20px;
+  }
+  .registration-fields {
+    grid-template-columns: 1fr;
+  }
+  .registration-fields label:nth-child(1),
+  .registration-fields label:nth-child(2),
+  .registration-fields label:nth-child(5),
+  .registration-fields label:nth-child(6),
+  .registration-fields label:nth-child(9),
+  .registration-fields label:nth-child(10) {
+    grid-column: auto;
+  }
+  .registration-card > .profile-message.success {
+    top: -24px;
+  }
 }
 .users-list {
   display: grid;
@@ -898,8 +937,21 @@ nav {
   margin: 0 0 8px;
 }
 .page-heading h1 span {
+  display: inline-flex;
+  margin-left: 10px;
+  vertical-align: -4px;
+}
+.greeting-icon svg {
+  height: 29px;
+  width: 29px;
+  stroke-width: 2;
+}
+.greeting-icon-morning,
+.greeting-icon-afternoon {
   color: #dba747;
-  font-size: 29px;
+}
+.greeting-icon-night {
+  color: #879bd0;
 }
 .subheading {
   color: #7d8980;
@@ -1270,6 +1322,13 @@ nav {
 .irrigation-button span {
   font-size: 10px;
   margin-right: 6px;
+}
+.permission-note {
+  color: #78857d;
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 0;
+  text-align: center;
 }
 .harvest-panel {
   margin-bottom: 21px;

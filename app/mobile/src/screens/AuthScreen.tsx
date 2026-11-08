@@ -14,7 +14,7 @@ import {
 import { login, register, requestPasswordRecovery, saveAuthToken } from '../services/api';
 import { useTheme, spacing, type ThemeColors } from '../styles/theme';
 
-type Props = { onAuthenticated: () => void };
+type Props = { onAuthenticated: () => Promise<void> };
 type Mode = 'welcome' | 'login' | 'register' | 'forgot';
 type Role = 'resident' | 'volunteer' | 'collaborator';
 
@@ -56,7 +56,7 @@ export function AuthScreen({ onAuthenticated }: Props) {
       if (mode === 'login') {
         const result = await login(email.trim(), password);
         await saveAuthToken(result.token);
-        onAuthenticated();
+        await onAuthenticated();
         return;
       }
       if (mode === 'forgot') {
