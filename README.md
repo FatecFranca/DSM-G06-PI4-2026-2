@@ -2,6 +2,14 @@
 
 Projeto de monitoramento e automação de uma horta comunitária com sensores IoT, API backend, painel web e app mobile.
 
+## Integrantes do Grupo
+
+```
+Aluno 1: Jose Paulo Archetti Conrado
+
+Aluno 2: Samir Facirolli da Silva
+```
+
 ## Visão geral
 
 O sistema atual implementa o fluxo principal:
@@ -86,6 +94,7 @@ O app em `app/mobile` usa Expo + React Native e contém as telas:
 - `Status`
 - `Irrigação`
 - `Colheitas`
+- `Meu perfil`
 
 Na tela `Status`, o app exibe os indicadores atuais e um gráfico resumido de
 umidade do solo. O histórico é carregado do MongoDB pela API e novas leituras
@@ -579,4 +588,4 @@ O que está no repositório hoje é a base operacional da horta conectada: senso
 
 ## Documentação técnica
 
-A visão das integrações entre sensor, MQTT, backend, banco, web, mobile e atuador está em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Todas as documentações e tambem a visão das integrações entre sensor, MQTT, backend, banco, web, mobile e atuador, se encontra na pasta [docs/](docs/).
