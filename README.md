@@ -10,6 +10,11 @@ Aluno 1: Jose Paulo Archetti Conrado
 Aluno 2: Samir Facirolli da Silva
 ```
 
+## Video Pitch do projeto
+
+[Youtube video pitch do Projeto](https://www.youtube.com/watch?v=oINFjQY9XVE)
+https://www.youtube.com/watch?v=oINFjQY9XVE
+
 ## Visão geral
 
 O sistema atual implementa o fluxo principal:
